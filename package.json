@@ -1,0 +1,35 @@
+{
+  "name": "create-lightning-scaffold",
+  "version": "1.0.0",
+  "description": "CLI to scaffold projects with LazorKit SDK integration",
+  "type": "module",
+  "bin": {
+    "create-lightning-scaffold": "./dist/index.js"
+  },
+  "files": ["dist", "templates"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "commander": "^12.0.0",
+    "ejs": "^3.1.10",
+    "fs-extra": "^11.2.0",
+    "picocolors": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/ejs": "^3.1.5",
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["cli", "scaffold", "lazorkit", "react-native", "nextjs", "expo"],
+  "license": "MIT"
+}
