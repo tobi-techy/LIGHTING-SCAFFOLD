@@ -1,10 +1,18 @@
 import { program } from "commander";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
+import gradient from "gradient-string";
+import figlet from "figlet";
 import { runPrompts } from "./cli.js";
 import { scaffold } from "./scaffolder.js";
-import { installDependencies } from "./installer.js";
+import { installDependencies, initGit } from "./installer.js";
 import type { ProjectConfig, Preset } from "./utils/types.js";
+
+const showBanner = () => {
+  const art = figlet.textSync("Lightning Scaffold", { font: "Slant" });
+  console.log(gradient.cristal.multiline(art));
+  console.log();
+};
 
 program
   .name("create-lightning-scaffold")
@@ -15,6 +23,7 @@ program
   .option("-p, --preset <preset>", "Preset: mobile, web, fullstack-mobile, fullstack-web, monorepo")
   .option("--skip-install", "Skip dependency installation")
   .action(async (opts) => {
+    showBanner();
     let config: ProjectConfig | null;
 
     if (opts.yes || opts.preset) {
@@ -31,6 +40,7 @@ program
         state: "zustand",
         components: isMobile ? "nativewind-ui" : "shadcn",
         packageManager: "npm",
+        gitInit: true,
       };
       p.intro(pc.bgCyan(pc.black(" create-lightning-scaffold ")));
       p.log.info(`Creating: ${name} (${preset})`);
@@ -54,6 +64,12 @@ program
         s.start("Installing dependencies...");
         await installDependencies(targetDir, config.packageManager);
         s.stop("Dependencies installed!");
+      }
+
+      if (config.gitInit) {
+        s.start("Initializing git...");
+        await initGit(targetDir);
+        s.stop("Git initialized!");
       }
 
       p.outro(pc.green("✓ Project created successfully!"));

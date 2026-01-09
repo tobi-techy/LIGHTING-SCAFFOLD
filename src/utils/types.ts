@@ -13,6 +13,7 @@ export interface ProjectConfig {
   state: StateManager;
   components: Components;
   packageManager: PackageManager;
+  gitInit: boolean;
 }
 
 export const PRESET_INFO: Record<Preset, { label: string; hint: string; platforms: ("mobile" | "web")[] }> = {

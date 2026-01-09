@@ -11,3 +11,11 @@ export function installDependencies(cwd: string, pm: PackageManager): Promise<vo
     child.on("error", reject);
   });
 }
+
+export function initGit(cwd: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["init"], { cwd, stdio: "ignore", shell: true });
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error("Git init failed"))));
+    child.on("error", reject);
+  });
+}

@@ -89,6 +89,13 @@ export async function runPrompts(): Promise<ProjectConfig | null> {
 
   if (p.isCancel(packageManager)) return null;
 
+  const gitInit = await p.confirm({
+    message: "Initialize git repository?",
+    initialValue: true,
+  });
+
+  if (p.isCancel(gitInit)) return null;
+
   return {
     name,
     preset,
@@ -97,5 +104,6 @@ export async function runPrompts(): Promise<ProjectConfig | null> {
     state,
     components: components as ProjectConfig["components"],
     packageManager,
+    gitInit,
   };
 }

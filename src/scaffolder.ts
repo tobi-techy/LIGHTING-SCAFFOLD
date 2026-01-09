@@ -40,7 +40,7 @@ export async function scaffold(config: ProjectConfig): Promise<string> {
   await addStateManagement(appDir, config);
   await addComponents(appDir, config);
   await addExamples(appDir, platforms[0], config);
-  await copyTemplate(path.join(templatesDir, "base"), isMonorepo ? targetDir : appDir, config);
+  await copyTemplate(path.join(templatesDir, "base"), targetDir, config);
 
   return targetDir;
 }

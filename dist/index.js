@@ -4,6 +4,8 @@
 import { program } from "commander";
 import * as p2 from "@clack/prompts";
 import pc2 from "picocolors";
+import gradient from "gradient-string";
+import figlet from "figlet";
 
 // src/cli.ts
 import * as p from "@clack/prompts";
@@ -120,6 +122,11 @@ async function runPrompts() {
     ]
   });
   if (p.isCancel(packageManager)) return null;
+  const gitInit = await p.confirm({
+    message: "Initialize git repository?",
+    initialValue: true
+  });
+  if (p.isCancel(gitInit)) return null;
   return {
     name,
     preset,
@@ -127,7 +134,8 @@ async function runPrompts() {
     styling,
     state,
     components,
-    packageManager
+    packageManager,
+    gitInit
   };
 }
 
@@ -162,7 +170,7 @@ async function scaffold(config) {
   await addStateManagement(appDir, config);
   await addComponents(appDir, config);
   await addExamples(appDir, platforms[0], config);
-  await copyTemplate(path2.join(templatesDir, "base"), isMonorepo ? targetDir : appDir, config);
+  await copyTemplate(path2.join(templatesDir, "base"), targetDir, config);
   return targetDir;
 }
 async function setupMonorepo(targetDir, config) {
@@ -255,9 +263,22 @@ function installDependencies(cwd, pm) {
     child.on("error", reject);
   });
 }
+function initGit(cwd) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["init"], { cwd, stdio: "ignore", shell: true });
+    child.on("close", (code) => code === 0 ? resolve() : reject(new Error("Git init failed")));
+    child.on("error", reject);
+  });
+}
 
 // src/index.ts
+var showBanner = () => {
+  const art = figlet.textSync("Lightning Scaffold", { font: "Slant" });
+  console.log(gradient.cristal.multiline(art));
+  console.log();
+};
 program.name("create-lightning-scaffold").description("Scaffold projects with LazorKit SDK integration").version("1.0.0").option("-y, --yes", "Use defaults").option("-n, --name <name>", "Project name").option("-p, --preset <preset>", "Preset: mobile, web, fullstack-mobile, fullstack-web, monorepo").option("--skip-install", "Skip dependency installation").action(async (opts) => {
+  showBanner();
   let config;
   if (opts.yes || opts.preset) {
     const name = opts.name || "my-lightning-app";
@@ -271,7 +292,8 @@ program.name("create-lightning-scaffold").description("Scaffold projects with La
       styling: isMobile ? "nativewind" : "tailwind",
       state: "zustand",
       components: isMobile ? "nativewind-ui" : "shadcn",
-      packageManager: "npm"
+      packageManager: "npm",
+      gitInit: true
     };
     p2.intro(pc2.bgCyan(pc2.black(" create-lightning-scaffold ")));
     p2.log.info(`Creating: ${name} (${preset})`);
@@ -291,6 +313,11 @@ program.name("create-lightning-scaffold").description("Scaffold projects with La
       s.start("Installing dependencies...");
       await installDependencies(targetDir, config.packageManager);
       s.stop("Dependencies installed!");
+    }
+    if (config.gitInit) {
+      s.start("Initializing git...");
+      await initGit(targetDir);
+      s.stop("Git initialized!");
     }
     p2.outro(pc2.green("\u2713 Project created successfully!"));
     console.log(`
