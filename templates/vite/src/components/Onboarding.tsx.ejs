@@ -1,0 +1,64 @@
+import { useState } from 'react'
+import { useWallet } from '@lazorkit/wallet'
+<% if (styling !== 'tailwind') { %>
+const styles: Record<string, React.CSSProperties> = {
+  container: { width: '100%', maxWidth: 360 },
+  title: { fontSize: 24, fontWeight: 600, letterSpacing: -0.5, color: '#0a0a0a', textAlign: 'center', margin: 0 },
+  subtitle: { marginTop: 8, fontSize: 14, color: '#737373', textAlign: 'center', lineHeight: 1.5 },
+  button: { marginTop: 32, width: '100%', backgroundColor: '#0a0a0a', color: '#fff', padding: '14px 16px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  buttonDisabled: { opacity: 0.5, cursor: 'not-allowed' },
+  hint: { marginTop: 16, fontSize: 12, color: '#a3a3a3', textAlign: 'center' },
+  error: { marginTop: 16, fontSize: 13, color: '#ef4444', textAlign: 'center' },
+}
+<% } %>
+export function Onboarding() {
+  const { connect, isConnecting } = useWallet()
+  const [error, setError] = useState<string | null>(null)
+
+  const handleStart = async () => {
+    setError(null)
+    try {
+      await connect()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong')
+    }
+  }
+
+  return (
+<% if (styling === 'tailwind') { %>
+    <div className="w-full max-w-sm">
+      <div className="text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Welcome</h1>
+        <p className="mt-2 text-sm text-neutral-500">
+          Create a wallet with your fingerprint or face. No seed phrases.
+        </p>
+        <button
+          onClick={handleStart}
+          disabled={isConnecting}
+          className="mt-8 w-full py-3 px-4 bg-black text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+        >
+          {isConnecting ? 'Creating...' : 'Create Wallet'}
+        </button>
+        <p className="mt-4 text-xs text-neutral-400">Secured by passkeys</p>
+        {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
+      </div>
+    </div>
+<% } else { %>
+    <div style={styles.container}>
+      <h1 style={styles.title}>Welcome</h1>
+      <p style={styles.subtitle}>
+        Create a wallet with your fingerprint or face. No seed phrases.
+      </p>
+      <button
+        onClick={handleStart}
+        disabled={isConnecting}
+        style={{ ...styles.button, ...(isConnecting ? styles.buttonDisabled : {}) }}
+      >
+        {isConnecting ? 'Creating...' : 'Create Wallet'}
+      </button>
+      <p style={styles.hint}>Secured by passkeys</p>
+      {error && <p style={styles.error}>{error}</p>}
+    </div>
+<% } %>
+  )
+}

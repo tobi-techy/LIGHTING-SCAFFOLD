@@ -1,0 +1,27 @@
+import { useWallet } from '@lazorkit/wallet'
+import { Onboarding } from './components/Onboarding'
+import { Swap } from './components/Swap'
+<% if (styling !== 'tailwind') { %>
+const styles: React.CSSProperties = {
+  minHeight: '100vh',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 16,
+}
+<% } %>
+export default function App() {
+  const { isConnected } = useWallet()
+
+  return (
+<% if (styling === 'tailwind') { %>
+    <main className="min-h-screen flex items-center justify-center p-4">
+      {isConnected ? <Swap /> : <Onboarding />}
+    </main>
+<% } else { %>
+    <main style={styles}>
+      {isConnected ? <Swap /> : <Onboarding />}
+    </main>
+<% } %>
+  )
+}

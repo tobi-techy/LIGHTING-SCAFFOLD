@@ -45,5 +45,11 @@
     "nextjs",
     "expo"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "author": "tobi-techy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tobi-techy/LIGHTING-SCAFFOLD.git"
+  },
+  "homepage": "https://github.com/tobi-techy/LIGHTING-SCAFFOLD#readme"
 }

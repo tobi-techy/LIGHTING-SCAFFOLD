@@ -14,12 +14,12 @@ import pc from "picocolors";
 // src/utils/types.ts
 var PRESET_INFO = {
   mobile: { label: "Mobile App", hint: "React Native + Expo", platforms: ["mobile"] },
-  web: { label: "Web App", hint: "Next.js", platforms: ["web"] },
+  web: { label: "Web App", hint: "Next.js or Vite", platforms: ["web"] },
   "fullstack-mobile": { label: "Full-Stack Mobile", hint: "React Native + Backend", platforms: ["mobile"] },
-  "fullstack-web": { label: "Full-Stack Web", hint: "Next.js + Backend", platforms: ["web"] },
+  "fullstack-web": { label: "Full-Stack Web", hint: "Web + Backend", platforms: ["web"] },
   monorepo: { label: "Monorepo", hint: "Mobile + Web + Backend", platforms: ["mobile", "web"] }
 };
-function getCompatibleOptions(preset) {
+function getCompatibleOptions(preset, webFramework) {
   const info = PRESET_INFO[preset];
   const hasMobile = info.platforms.includes("mobile");
   const hasWeb = info.platforms.includes("web");
@@ -27,12 +27,19 @@ function getCompatibleOptions(preset) {
   return {
     styling: hasMobile ? ["nativewind", "none"] : ["tailwind", "none"],
     components: hasMobile ? ["nativewind-ui", "none"] : ["shadcn", "none"],
-    backend: hasBackend ? ["supabase", "firebase"] : ["none"],
-    state: ["zustand", "redux"]
+    backend: hasBackend ? ["nestjs-postgres", "nestjs-mongodb", "supabase", "firebase"] : ["none"],
+    state: ["zustand", "redux"],
+    animation: hasMobile ? ["reanimated", "moti", "none"] : ["framer", "none"]
   };
 }
 function isMonorepoPreset(preset) {
   return preset === "fullstack-mobile" || preset === "fullstack-web" || preset === "monorepo";
+}
+function hasWebPlatform(preset) {
+  return PRESET_INFO[preset].platforms.includes("web");
+}
+function hasMobilePlatform(preset) {
+  return PRESET_INFO[preset].platforms.includes("mobile");
 }
 
 // src/utils/helpers.ts
@@ -68,16 +75,45 @@ async function runPrompts() {
     }))
   });
   if (p.isCancel(preset)) return null;
-  const options = getCompatibleOptions(preset);
+  const showWebFramework = hasWebPlatform(preset);
+  const showMobileOptions = hasMobilePlatform(preset);
+  const hasBackend = preset.includes("fullstack") || preset === "monorepo";
+  let webFramework = "nextjs";
+  if (showWebFramework) {
+    const webChoice = await p.select({
+      message: "Web framework:",
+      options: [
+        { value: "nextjs", label: "Next.js", hint: "Full-featured React framework" },
+        { value: "vite", label: "Vite", hint: "Fast, lightweight SPA" }
+      ]
+    });
+    if (p.isCancel(webChoice)) return null;
+    webFramework = webChoice;
+  }
+  let backend = "none";
+  if (hasBackend) {
+    const backendChoice = await p.select({
+      message: "Backend:",
+      options: [
+        { value: "nestjs-postgres", label: "NestJS + PostgreSQL", hint: "Prisma ORM" },
+        { value: "nestjs-mongodb", label: "NestJS + MongoDB", hint: "Mongoose ODM" },
+        { value: "supabase", label: "Supabase", hint: "BaaS with Postgres" },
+        { value: "firebase", label: "Firebase", hint: "Google BaaS" }
+      ]
+    });
+    if (p.isCancel(backendChoice)) return null;
+    backend = backendChoice;
+  }
+  const options = getCompatibleOptions(preset, webFramework);
   const customize = await p.confirm({
-    message: "Customize options?",
+    message: "Customize styling, state & animations?",
     initialValue: false
   });
   if (p.isCancel(customize)) return null;
   let styling = options.styling[0];
   let components = options.components[0];
   let state = "zustand";
-  let backend = options.backend[0];
+  let animation = "none";
   if (customize) {
     const stylingChoice = await p.select({
       message: "Styling:",
@@ -88,8 +124,8 @@ async function runPrompts() {
     const stateChoice = await p.select({
       message: "State management:",
       options: [
-        { value: "zustand", label: "Zustand" },
-        { value: "redux", label: "Redux Toolkit" }
+        { value: "zustand", label: "Zustand", hint: "Simple, lightweight" },
+        { value: "redux", label: "Redux Toolkit", hint: "Full-featured" }
       ]
     });
     if (p.isCancel(stateChoice)) return null;
@@ -100,17 +136,25 @@ async function runPrompts() {
     });
     if (p.isCancel(componentsChoice)) return null;
     components = componentsChoice;
-    if (options.backend[0] !== "none") {
-      const backendChoice = await p.select({
-        message: "Backend:",
-        options: [
-          { value: "supabase", label: "Supabase" },
-          { value: "firebase", label: "Firebase" }
-        ]
-      });
-      if (p.isCancel(backendChoice)) return null;
-      backend = backendChoice;
-    }
+    const animationChoice = await p.select({
+      message: "Animations:",
+      options: options.animation.map((v) => ({
+        value: v,
+        label: v === "none" ? "None" : v === "reanimated" ? "React Native Reanimated" : v === "framer" ? "Framer Motion" : "Moti",
+        hint: v === "moti" ? "Cross-platform, uses Reanimated" : void 0
+      }))
+    });
+    if (p.isCancel(animationChoice)) return null;
+    animation = animationChoice;
+  }
+  let eas = false;
+  if (showMobileOptions) {
+    const easChoice = await p.confirm({
+      message: "Setup EAS Build for app store deployment?",
+      initialValue: true
+    });
+    if (p.isCancel(easChoice)) return null;
+    eas = easChoice;
   }
   const packageManager = await p.select({
     message: "Package manager:",
@@ -130,10 +174,13 @@ async function runPrompts() {
   return {
     name,
     preset,
+    webFramework,
     backend,
     styling,
     state,
     components,
+    animation,
+    eas,
     packageManager,
     gitInit
   };
@@ -143,43 +190,121 @@ async function runPrompts() {
 import fs2 from "fs-extra";
 import path2 from "path";
 import ejs from "ejs";
+import { spawn } from "child_process";
+function runCommand(cmd, args, cwd) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { cwd, stdio: "inherit", shell: true });
+    child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`${cmd} failed`)));
+    child.on("error", reject);
+  });
+}
 async function scaffold(config) {
   const targetDir = path2.resolve(process.cwd(), config.name);
   const templatesDir = getTemplatesDir();
   const isMonorepo = isMonorepoPreset(config.preset);
   const platforms = PRESET_INFO[config.preset].platforms;
-  await fs2.ensureDir(targetDir);
   if (isMonorepo) {
+    await fs2.ensureDir(targetDir);
     await setupMonorepo(targetDir, config);
     if (platforms.includes("mobile")) {
-      await copyTemplate(path2.join(templatesDir, "mobile"), path2.join(targetDir, "apps/mobile"), config);
+      await scaffoldMobile(path2.join(targetDir, "apps"), "mobile", config);
+      if (config.eas) await addEasConfig(path2.join(targetDir, "apps/mobile"), config);
     }
     if (platforms.includes("web")) {
-      await copyTemplate(path2.join(templatesDir, "web"), path2.join(targetDir, "apps/web"), config);
+      await scaffoldWeb(path2.join(targetDir, "apps"), "web", config);
     }
     if (config.backend !== "none") {
-      await fs2.ensureDir(path2.join(targetDir, "packages/backend"));
-      await copyTemplate(path2.join(templatesDir, "backend", config.backend), path2.join(targetDir, "packages/backend"), config);
+      await scaffoldBackend(path2.join(targetDir, "packages"), "backend", config);
     }
   } else {
-    const platformTemplate = platforms[0] === "mobile" ? "mobile" : "web";
-    await copyTemplate(path2.join(templatesDir, platformTemplate), targetDir, config);
+    if (platforms[0] === "mobile") {
+      await scaffoldMobile(process.cwd(), config.name, config);
+      if (config.eas) await addEasConfig(targetDir, config);
+    } else {
+      await scaffoldWeb(process.cwd(), config.name, config);
+    }
   }
   const appDir = isMonorepo ? path2.join(targetDir, platforms[0] === "mobile" ? "apps/mobile" : "apps/web") : targetDir;
-  await addStyling(appDir, config);
-  await addStateManagement(appDir, config);
-  await addComponents(appDir, config);
-  await addExamples(appDir, platforms[0], config);
+  const platform = platforms[0];
+  await addDependencies(appDir, platform, config);
+  await copyTemplate(path2.join(templatesDir, "state", config.state), path2.join(appDir, "lib/store"), config);
+  if (config.components !== "none") {
+    await copyTemplate(path2.join(templatesDir, "components", config.components), path2.join(appDir, "components/ui"), config);
+  }
+  if (config.backend !== "none") {
+    await copyTemplate(path2.join(templatesDir, "backend", config.backend.replace(/-.*/, "")), path2.join(appDir, "lib/backend"), config);
+    await copyTemplate(path2.join(templatesDir, "lib"), path2.join(appDir, "lib"), config);
+  }
+  await copyAppTemplates(appDir, platform, config);
   await copyTemplate(path2.join(templatesDir, "base"), targetDir, config);
   return targetDir;
+}
+async function scaffoldMobile(cwd, name, config) {
+  await runCommand("npx", ["create-expo-app@latest", name, "--template", "blank-typescript", "--no-install"], cwd);
+}
+async function scaffoldWeb(cwd, name, config) {
+  if (config.webFramework === "vite") {
+    await runCommand("npm", ["create", "vite@latest", name, "--", "--template", "react-ts"], cwd);
+  } else {
+    const tailwindFlag = config.styling === "tailwind" ? "--tailwind" : "--no-tailwind";
+    await runCommand("npx", ["create-next-app@latest", name, "--typescript", tailwindFlag, "--eslint", "--app", "--no-src-dir", "--no-import-alias", "--no-install"], cwd);
+  }
+}
+async function scaffoldBackend(cwd, name, config) {
+  if (config.backend.startsWith("nestjs")) {
+    await runCommand("npx", ["@nestjs/cli", "new", name, "--package-manager", config.packageManager, "--skip-install", "--skip-git"], cwd);
+    const backendDir = path2.join(cwd, name);
+    if (config.backend === "nestjs-postgres") {
+      await addPrismaSetup(backendDir);
+    } else if (config.backend === "nestjs-mongodb") {
+      await addMongooseSetup(backendDir);
+    }
+  } else {
+    const templatesDir = getTemplatesDir();
+    await copyTemplate(path2.join(templatesDir, "backend", config.backend), path2.join(cwd, name), config);
+  }
+}
+async function addPrismaSetup(backendDir) {
+  const pkgPath = path2.join(backendDir, "package.json");
+  const pkg = await fs2.readJson(pkgPath);
+  pkg.dependencies["@prisma/client"] = "^5.10.0";
+  pkg.devDependencies["prisma"] = "^5.10.0";
+  pkg.scripts["db:generate"] = "prisma generate";
+  pkg.scripts["db:migrate"] = "prisma migrate dev";
+  pkg.scripts["db:push"] = "prisma db push";
+  await fs2.writeJson(pkgPath, pkg, { spaces: 2 });
+  await fs2.ensureDir(path2.join(backendDir, "prisma"));
+  await fs2.writeFile(path2.join(backendDir, "prisma/schema.prisma"), `datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  wallet    String   @unique
+  createdAt DateTime @default(now())
+}
+`);
+}
+async function addMongooseSetup(backendDir) {
+  const pkgPath = path2.join(backendDir, "package.json");
+  const pkg = await fs2.readJson(pkgPath);
+  pkg.dependencies["@nestjs/mongoose"] = "^10.0.0";
+  pkg.dependencies["mongoose"] = "^8.2.0";
+  await fs2.writeJson(pkgPath, pkg, { spaces: 2 });
 }
 async function setupMonorepo(targetDir, config) {
   const pkg = {
     name: config.name,
     private: true,
     scripts: {
-      dev: "echo 'Run dev in apps/*'",
-      build: "echo 'Run build in apps/*'"
+      "dev:mobile": "cd apps/mobile && npm run start",
+      "dev:web": "cd apps/web && npm run dev",
+      "dev:backend": "cd packages/backend && npm run start:dev"
     }
   };
   if (config.packageManager === "pnpm") {
@@ -191,52 +316,95 @@ async function setupMonorepo(targetDir, config) {
   await fs2.ensureDir(path2.join(targetDir, "apps"));
   await fs2.ensureDir(path2.join(targetDir, "packages"));
 }
-async function addStyling(appDir, config) {
-  if (config.styling === "none") return;
+async function addDependencies(appDir, platform, config) {
   const pkgPath = path2.join(appDir, "package.json");
   if (!await fs2.pathExists(pkgPath)) return;
   const pkg = await fs2.readJson(pkgPath);
   pkg.dependencies = pkg.dependencies || {};
   pkg.devDependencies = pkg.devDependencies || {};
-  if (config.styling === "nativewind") {
-    pkg.dependencies["nativewind"] = "^4.0.0";
-    pkg.devDependencies["tailwindcss"] = "^3.4.0";
-    const templatesDir = getTemplatesDir();
-    await copyTemplate(path2.join(templatesDir, "styling", "nativewind"), appDir, config);
-  }
-  await fs2.writeJson(pkgPath, pkg, { spaces: 2 });
-}
-async function addStateManagement(appDir, config) {
-  const pkgPath = path2.join(appDir, "package.json");
-  if (!await fs2.pathExists(pkgPath)) return;
-  const pkg = await fs2.readJson(pkgPath);
-  pkg.dependencies = pkg.dependencies || {};
   if (config.state === "zustand") {
     pkg.dependencies["zustand"] = "^4.5.0";
   } else {
     pkg.dependencies["@reduxjs/toolkit"] = "^2.0.0";
     pkg.dependencies["react-redux"] = "^9.0.0";
   }
+  if (config.animation === "reanimated") {
+    pkg.dependencies["react-native-reanimated"] = "^3.10.0";
+    pkg.dependencies["react-native-gesture-handler"] = "^2.16.0";
+  } else if (config.animation === "moti") {
+    pkg.dependencies["moti"] = "^0.29.0";
+    pkg.dependencies["react-native-reanimated"] = "^3.10.0";
+  } else if (config.animation === "framer") {
+    pkg.dependencies["framer-motion"] = "^11.0.0";
+  }
+  if (platform === "mobile") {
+    pkg.dependencies["@lazorkit/wallet-mobile-adapter"] = "latest";
+    pkg.dependencies["@solana/web3.js"] = "^1.95.0";
+    pkg.dependencies["react-native-get-random-values"] = "~1.11.0";
+    pkg.dependencies["react-native-url-polyfill"] = "^2.0.0";
+    pkg.dependencies["buffer"] = "^6.0.3";
+    pkg.dependencies["expo-crypto"] = "~15.0.0";
+    pkg.dependencies["expo-linking"] = "~8.0.11";
+    pkg.dependencies["expo-web-browser"] = "~15.0.10";
+    if (config.styling === "nativewind") {
+      pkg.dependencies["nativewind"] = "^4.0.0";
+      pkg.devDependencies["tailwindcss"] = "^3.4.0";
+    }
+  } else {
+    pkg.dependencies["@lazorkit/wallet"] = "latest";
+    pkg.dependencies["@solana/web3.js"] = "^1.95.0";
+    pkg.dependencies["@coral-xyz/anchor"] = "^0.30.0";
+    pkg.dependencies["buffer"] = "^6.0.3";
+    if (config.webFramework === "vite") {
+      pkg.devDependencies["vite-plugin-node-polyfills"] = "^0.22.0";
+    }
+    if (config.styling === "tailwind" && config.webFramework === "vite") {
+      pkg.devDependencies["tailwindcss"] = "^3.4.0";
+      pkg.devDependencies["postcss"] = "^8.4.0";
+      pkg.devDependencies["autoprefixer"] = "^10.4.0";
+    }
+  }
+  if (config.backend === "supabase") {
+    pkg.dependencies["@supabase/supabase-js"] = "^2.39.0";
+  } else if (config.backend === "firebase") {
+    pkg.dependencies["firebase"] = "^10.7.0";
+  }
   await fs2.writeJson(pkgPath, pkg, { spaces: 2 });
-  const templatesDir = getTemplatesDir();
-  await copyTemplate(path2.join(templatesDir, "state", config.state), path2.join(appDir, "lib/store"), config);
 }
-async function addComponents(appDir, config) {
-  if (config.components === "none") return;
-  const templatesDir = getTemplatesDir();
-  await copyTemplate(path2.join(templatesDir, "components", config.components), path2.join(appDir, "components/ui"), config);
+async function addEasConfig(appDir, config) {
+  const easConfig = {
+    cli: { version: ">= 7.0.0" },
+    build: {
+      development: { developmentClient: true, distribution: "internal" },
+      preview: { distribution: "internal" },
+      production: {}
+    },
+    submit: { production: {} }
+  };
+  await fs2.writeJson(path2.join(appDir, "eas.json"), easConfig, { spaces: 2 });
 }
-async function addExamples(appDir, platform, config) {
+async function copyAppTemplates(appDir, platform, config) {
   const templatesDir = getTemplatesDir();
-  const examplesDir = path2.join(templatesDir, "examples", platform);
-  const targetDir = platform === "mobile" ? path2.join(appDir, "app") : path2.join(appDir, "app/examples");
-  await copyTemplate(examplesDir, targetDir, config);
+  if (platform === "web" && config.webFramework === "vite") {
+    const viteDir = path2.join(templatesDir, "vite");
+    await copyTemplate(path2.join(viteDir, "src"), path2.join(appDir, "src"), config);
+    await copyTemplate(viteDir, appDir, config, ["src"]);
+  } else if (platform === "web") {
+    const webDir = path2.join(templatesDir, "web");
+    await copyTemplate(path2.join(webDir, "app"), path2.join(appDir, "app"), config);
+    await copyTemplate(path2.join(webDir, "components"), path2.join(appDir, "components"), config);
+  } else {
+    const mobileDir = path2.join(templatesDir, "mobile");
+    await copyTemplate(path2.join(mobileDir, "app"), path2.join(appDir, "app"), config);
+    await copyTemplate(path2.join(mobileDir, "components"), path2.join(appDir, "components"), config);
+  }
 }
-async function copyTemplate(src, dest, config) {
+async function copyTemplate(src, dest, config, exclude = []) {
   if (!await fs2.pathExists(src)) return;
   await fs2.ensureDir(dest);
   const files = await fs2.readdir(src, { withFileTypes: true });
   for (const file of files) {
+    if (exclude.includes(file.name)) continue;
     const srcPath = path2.join(src, file.name);
     const destName = file.name.replace(/\.ejs$/, "");
     const destPath = path2.join(dest, destName);
@@ -245,7 +413,9 @@ async function copyTemplate(src, dest, config) {
     } else if (file.name.endsWith(".ejs")) {
       const content = await fs2.readFile(srcPath, "utf-8");
       const rendered = ejs.render(content, config);
-      await fs2.writeFile(destPath, rendered);
+      if (rendered.trim()) {
+        await fs2.writeFile(destPath, rendered);
+      }
     } else {
       await fs2.copy(srcPath, destPath);
     }
@@ -253,19 +423,19 @@ async function copyTemplate(src, dest, config) {
 }
 
 // src/installer.ts
-import { spawn } from "child_process";
+import { spawn as spawn2 } from "child_process";
 function installDependencies(cwd, pm) {
   return new Promise((resolve, reject) => {
     const cmd = pm === "npm" ? "npm" : pm;
     const args = pm === "yarn" ? [] : ["install"];
-    const child = spawn(cmd, args, { cwd, stdio: "inherit", shell: true });
+    const child = spawn2(cmd, args, { cwd, stdio: "inherit", shell: true });
     child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`Install failed with code ${code}`)));
     child.on("error", reject);
   });
 }
 function initGit(cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn("git", ["init"], { cwd, stdio: "ignore", shell: true });
+    const child = spawn2("git", ["init"], { cwd, stdio: "ignore", shell: true });
     child.on("close", (code) => code === 0 ? resolve() : reject(new Error("Git init failed")));
     child.on("error", reject);
   });
@@ -285,13 +455,17 @@ program.name("create-lightning-scaffold").description("Scaffold projects with La
     const preset = opts.preset || "mobile";
     const isMobile = preset === "mobile" || preset === "fullstack-mobile";
     const hasBackend = preset.includes("fullstack") || preset === "monorepo";
+    const hasWeb = preset === "web" || preset === "fullstack-web" || preset === "monorepo";
     config = {
       name,
       preset,
-      backend: hasBackend ? "supabase" : "none",
+      webFramework: "nextjs",
+      backend: hasBackend ? "nestjs-postgres" : "none",
       styling: isMobile ? "nativewind" : "tailwind",
       state: "zustand",
       components: isMobile ? "nativewind-ui" : "shadcn",
+      animation: isMobile ? "reanimated" : "framer",
+      eas: isMobile,
       packageManager: "npm",
       gitInit: true
     };

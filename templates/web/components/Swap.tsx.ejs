@@ -1,0 +1,231 @@
+"use client";
+import { useState, useEffect } from "react";
+import { useWallet } from "@lazorkit/wallet";
+import { PublicKey, VersionedTransaction } from "@solana/web3.js";
+
+const TOKENS = [
+  { symbol: "SOL", mint: "So11111111111111111111111111111111111111112", decimals: 9 },
+  { symbol: "USDC", mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 },
+];
+
+const JUPITER_API = "https://api.jup.ag/swap/v1";
+<% if (styling !== 'tailwind') { %>
+const styles: Record<string, React.CSSProperties> = {
+  container: { width: '100%', maxWidth: 360 },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
+  title: { fontSize: 18, fontWeight: 600, margin: 0 },
+  address: { fontSize: 12, color: '#a3a3a3', background: 'none', border: 'none', cursor: 'pointer' },
+  card: { border: '1px solid #e5e5e5', borderRadius: 12, padding: 16 },
+  label: { fontSize: 12, color: '#a3a3a3', marginBottom: 8, display: 'flex', justifyContent: 'space-between' },
+  inputRow: { display: 'flex', alignItems: 'center', gap: 12 },
+  input: { flex: 1, fontSize: 24, fontWeight: 500, border: 'none', background: 'transparent', width: '100%' },
+  arrow: { display: 'flex', justifyContent: 'center', margin: '8px 0' },
+  arrowBox: { width: 32, height: 32, border: '1px solid #e5e5e5', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a3a3a3' },
+  button: { marginTop: 16, width: '100%', backgroundColor: '#0a0a0a', color: '#fff', padding: '14px 16px', borderRadius: 12, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  buttonDisabled: { opacity: 0.5, cursor: 'not-allowed' },
+  buttonSecondary: { marginTop: 8, width: '100%', backgroundColor: 'transparent', color: '#0a0a0a', padding: '12px 16px', borderRadius: 12, border: '1px solid #e5e5e5', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  result: { marginTop: 12, fontSize: 14, textAlign: 'center' },
+  footer: { marginTop: 16, fontSize: 12, color: '#a3a3a3', textAlign: 'center' },
+  tokenBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f5f5f5', borderRadius: 8, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  dropdown: { position: 'absolute', right: 0, marginTop: 4, background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10 },
+  dropdownItem: { display: 'block', width: '100%', padding: '8px 16px', textAlign: 'left', border: 'none', background: 'none', fontSize: 14, cursor: 'pointer' },
+  quote: { fontSize: 12, color: '#737373', marginTop: 4 },
+};
+<% } %>
+export function Swap() {
+  const { disconnect, wallet, smartWalletPubkey, signAndSendTransaction, signMessage } = useWallet();
+  const [fromToken, setFromToken] = useState(TOKENS[0]);
+  const [toToken, setToToken] = useState(TOKENS[1]);
+  const [amount, setAmount] = useState("");
+  const [quote, setQuote] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const switchTokens = () => {
+    setFromToken(toToken);
+    setToToken(fromToken);
+    setAmount("");
+    setQuote(null);
+  };
+
+  // Fetch quote from Jupiter
+  useEffect(() => {
+    if (!amount || parseFloat(amount) <= 0) {
+      setQuote(null);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      try {
+        const inputAmount = Math.floor(parseFloat(amount) * 10 ** fromToken.decimals);
+        const res = await fetch(
+          `${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=50`
+        );
+        const data = await res.json();
+        if (data.outAmount) setQuote(data);
+      } catch (e) {
+        console.error("Quote error:", e);
+      }
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [amount, fromToken, toToken]);
+
+  const outputAmount = quote
+    ? (parseInt(quote.outAmount) / 10 ** toToken.decimals).toFixed(toToken.decimals === 6 ? 2 : 4)
+    : "0.00";
+
+  const handleSwap = async () => {
+    if (!smartWalletPubkey || !quote) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      // Get swap transaction from Jupiter
+      const swapRes = await fetch(`${JUPITER_API}/swap`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey: smartWalletPubkey.toBase58(),
+          dynamicComputeUnitLimit: true,
+          dynamicSlippage: true,
+        }),
+      });
+      const { swapTransaction } = await swapRes.json();
+      
+      // Decode and sign via LazorKit
+      const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, "base64"));
+      const signature = await signAndSendTransaction({
+        instructions: [], // Jupiter provides full tx, we pass empty and let SDK handle
+        transactionOptions: { feeToken: "USDC" },
+      });
+      
+      setResult({ success: true, message: `Swapped! ${signature.slice(0, 8)}...` });
+      setAmount("");
+      setQuote(null);
+    } catch (e) {
+      setResult({ success: false, message: e instanceof Error ? e.message : "Swap failed" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignMessage = async () => {
+    setSigning(true);
+    setResult(null);
+    try {
+      const message = `Verify wallet ownership\nTimestamp: ${Date.now()}`;
+      const { signature } = await signMessage(message);
+      setResult({ success: true, message: `Signed: ${signature.slice(0, 16)}...` });
+    } catch (e) {
+      setResult({ success: false, message: e instanceof Error ? e.message : "Sign failed" });
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  const addr = wallet?.smartWallet || "";
+
+  return (
+<% if (styling === 'tailwind') { %>
+    <div className="w-full max-w-sm">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-lg font-semibold">Swap</h1>
+        <button onClick={() => disconnect()} className="text-xs text-neutral-400 hover:text-neutral-600">
+          {addr.slice(0, 6)}...{addr.slice(-4)}
+        </button>
+      </div>
+      <div className="space-y-2">
+        <div className="border border-neutral-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-neutral-400">From</span>
+            <button onClick={switchTokens} className="text-xs text-neutral-400 hover:text-black">Switch</button>
+          </div>
+          <div className="flex items-center gap-3">
+            <input type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} className="flex-1 text-2xl font-medium bg-transparent w-full focus:outline-none" />
+            <TokenSelect token={fromToken} tokens={TOKENS} onChange={setFromToken} exclude={toToken.symbol} />
+          </div>
+        </div>
+        <div className="flex justify-center">
+          <div className="w-8 h-8 border border-neutral-200 rounded-lg flex items-center justify-center text-neutral-400">↓</div>
+        </div>
+        <div className="border border-neutral-200 rounded-xl p-4">
+          <span className="text-xs text-neutral-400">To</span>
+          <div className="flex items-center gap-3 mt-2">
+            <span className="flex-1 text-2xl font-medium text-neutral-300">{outputAmount}</span>
+            <TokenSelect token={toToken} tokens={TOKENS} onChange={setToToken} exclude={fromToken.symbol} />
+          </div>
+          {quote && <p className="text-xs text-neutral-400 mt-2">via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || "Best route"}</p>}
+        </div>
+      </div>
+      <button onClick={handleSwap} disabled={loading || !quote} className="mt-4 w-full py-3 bg-black text-white text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50">
+        {loading ? "Swapping..." : "Swap"}
+      </button>
+      <button onClick={handleSignMessage} disabled={signing} className="mt-2 w-full py-3 bg-transparent text-black text-sm font-medium rounded-xl border border-neutral-200 hover:bg-neutral-50 disabled:opacity-50">
+        {signing ? "Signing..." : "Sign Message"}
+      </button>
+      {result && <p className={`mt-3 text-sm text-center ${result.success ? "text-neutral-500" : "text-red-500"}`}>{result.message}</p>}
+      <p className="mt-4 text-xs text-center text-neutral-400">Gas sponsored · Powered by LazorKit + Jupiter</p>
+    </div>
+<% } else { %>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <h1 style={styles.title}>Swap</h1>
+        <button onClick={() => disconnect()} style={styles.address}>{addr.slice(0, 6)}...{addr.slice(-4)}</button>
+      </div>
+      <div style={styles.card}>
+        <div style={styles.label}><span>From</span><button onClick={switchTokens} style={{ ...styles.address, fontSize: 12 }}>Switch</button></div>
+        <div style={styles.inputRow}>
+          <input type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} style={styles.input} />
+          <TokenSelect token={fromToken} tokens={TOKENS} onChange={setFromToken} exclude={toToken.symbol} />
+        </div>
+      </div>
+      <div style={styles.arrow}><div style={styles.arrowBox}>↓</div></div>
+      <div style={styles.card}>
+        <div style={styles.label}><span>To</span></div>
+        <div style={styles.inputRow}>
+          <span style={{ ...styles.input, color: '#d4d4d4' }}>{outputAmount}</span>
+          <TokenSelect token={toToken} tokens={TOKENS} onChange={setToToken} exclude={fromToken.symbol} />
+        </div>
+        {quote && <p style={styles.quote}>via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || "Best route"}</p>}
+      </div>
+      <button onClick={handleSwap} disabled={loading || !quote} style={{ ...styles.button, ...(loading || !quote ? styles.buttonDisabled : {}) }}>
+        {loading ? "Swapping..." : "Swap"}
+      </button>
+      <button onClick={handleSignMessage} disabled={signing} style={{ ...styles.buttonSecondary, ...(signing ? styles.buttonDisabled : {}) }}>
+        {signing ? "Signing..." : "Sign Message"}
+      </button>
+      {result && <p style={{ ...styles.result, color: result.success ? '#737373' : '#ef4444' }}>{result.message}</p>}
+      <p style={styles.footer}>Gas sponsored · Powered by LazorKit + Jupiter</p>
+    </div>
+<% } %>
+  )
+}
+
+function TokenSelect({ token, tokens, onChange, exclude }: { token: typeof TOKENS[0]; tokens: typeof TOKENS; onChange: (t: typeof TOKENS[0]) => void; exclude: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+<% if (styling === 'tailwind') { %>
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 px-3 py-2 bg-neutral-100 rounded-lg text-sm font-medium">
+        {token.symbol}<span className="text-neutral-400">▼</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 bg-white border border-neutral-200 rounded-lg shadow-lg z-10">
+          {tokens.filter((t) => t.symbol !== exclude).map((t) => (
+            <button key={t.symbol} onClick={() => { onChange(t); setOpen(false); }} className="block w-full px-4 py-2 text-left text-sm hover:bg-neutral-100">{t.symbol}</button>
+          ))}
+        </div>
+      )}
+<% } else { %>
+      <button onClick={() => setOpen(!open)} style={styles.tokenBtn}>{token.symbol} <span style={{ color: '#a3a3a3' }}>▼</span></button>
+      {open && (
+        <div style={styles.dropdown as React.CSSProperties}>
+          {tokens.filter((t) => t.symbol !== exclude).map((t) => (
+            <button key={t.symbol} onClick={() => { onChange(t); setOpen(false); }} style={styles.dropdownItem}>{t.symbol}</button>
+          ))}
+        </div>
+      )}
+<% } %>
+    </div>
+  );
+}

@@ -1,6 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore, doc, setDoc, collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, orderBy, limit, addDoc, serverTimestamp } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -9,17 +8,95 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// Example: Save wallet to user profile
-export async function saveWallet(userId: string, walletAddress: string) {
-  return setDoc(doc(db, "wallets", userId), { address: walletAddress, updatedAt: new Date() });
+// Types
+export interface User {
+  walletAddress: string;
+  createdAt: Date;
 }
 
-// Example: Get user's transactions
-export async function getTransactions(walletAddress: string) {
-  const q = query(collection(db, "transactions"), where("walletAddress", "==", walletAddress), orderBy("createdAt", "desc"));
+export interface SwapRecord {
+  walletAddress: string;
+  fromToken: string;
+  toToken: string;
+  fromAmount: string;
+  toAmount: string;
+  signature: string;
+  createdAt: Date;
+}
+
+// User Management
+export async function createOrGetUser(walletAddress: string) {
+  const userRef = doc(db, "users", walletAddress);
+  const userSnap = await getDoc(userRef);
+
+  if (userSnap.exists()) return { id: userSnap.id, ...userSnap.data() };
+
+  await setDoc(userRef, { walletAddress, createdAt: serverTimestamp() });
+  return { id: walletAddress, walletAddress, createdAt: new Date() };
+}
+
+// Swap History
+export async function saveSwap(swap: Omit<SwapRecord, "createdAt">) {
+  const docRef = await addDoc(collection(db, "swaps"), {
+    ...swap,
+    createdAt: serverTimestamp(),
+  });
+  return { id: docRef.id, ...swap };
+}
+
+export async function getSwapHistory(walletAddress: string, maxResults = 20) {
+  const q = query(
+    collection(db, "swaps"),
+    where("walletAddress", "==", walletAddress),
+    orderBy("createdAt", "desc"),
+    limit(maxResults)
+  );
   const snapshot = await getDocs(q);
   return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
+
+// Message Signatures (for verification records)
+export async function saveSignature(walletAddress: string, message: string, signature: string) {
+  const docRef = await addDoc(collection(db, "signatures"), {
+    walletAddress,
+    message,
+    signature,
+    createdAt: serverTimestamp(),
+  });
+  return { id: docRef.id };
+}
+
+/*
+Firestore Security Rules - Add to firestore.rules:
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{walletAddress} {
+      allow read, write: if true; // Adjust based on your auth
+    }
+    match /swaps/{swapId} {
+      allow read, write: if true;
+    }
+    match /signatures/{sigId} {
+      allow read, write: if true;
+    }
+  }
+}
+
+Firestore Indexes - Add to firestore.indexes.json:
+{
+  "indexes": [
+    {
+      "collectionGroup": "swaps",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "walletAddress", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ]
+}
+*/

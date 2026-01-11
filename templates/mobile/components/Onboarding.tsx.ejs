@@ -1,0 +1,79 @@
+import { useState } from 'react';
+import { View, Text, TouchableOpacity, ActivityIndicator<% if (styling !== 'nativewind') { %>, StyleSheet<% } %> } from 'react-native';
+import { useWallet } from '@lazorkit/wallet-mobile-adapter';
+import * as Linking from 'expo-linking';
+<% if (styling !== 'nativewind') { %>
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  content: { width: '100%', maxWidth: 320, alignItems: 'center' },
+  title: { fontSize: 24, fontWeight: '600', color: '#0a0a0a', letterSpacing: -0.5 },
+  subtitle: { marginTop: 8, fontSize: 14, color: '#737373', textAlign: 'center', lineHeight: 20 },
+  button: { marginTop: 32, width: '100%', backgroundColor: '#0a0a0a', paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
+  buttonDisabled: { opacity: 0.5 },
+  buttonText: { color: '#fff', fontSize: 14, fontWeight: '500' },
+  hint: { marginTop: 16, fontSize: 12, color: '#a3a3a3' },
+  error: { marginTop: 16, fontSize: 13, color: '#ef4444', textAlign: 'center' },
+});
+<% } %>
+export function Onboarding() {
+  const { connect, isConnecting } = useWallet();
+  const [error, setError] = useState<string | null>(null);
+  const redirectUrl = Linking.createURL('/');
+
+  const handleStart = async () => {
+    setError(null);
+    try {
+      await connect({ redirectUrl });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong');
+    }
+  };
+
+  return (
+<% if (styling === 'nativewind') { %>
+    <View className="flex-1 bg-white justify-center items-center p-6">
+      <View className="w-full max-w-xs items-center">
+        <Text className="text-2xl font-semibold text-black tracking-tight">Welcome</Text>
+        <Text className="mt-2 text-sm text-neutral-500 text-center leading-5">
+          Create a wallet with your fingerprint or face. No seed phrases.
+        </Text>
+        <TouchableOpacity
+          className={`mt-8 w-full bg-black py-3.5 rounded-xl items-center ${isConnecting ? 'opacity-50' : ''}`}
+          onPress={handleStart}
+          disabled={isConnecting}
+        >
+          {isConnecting ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text className="text-white text-sm font-medium">Create Wallet</Text>
+          )}
+        </TouchableOpacity>
+        <Text className="mt-4 text-xs text-neutral-400">Secured by passkeys</Text>
+        {error && <Text className="mt-4 text-sm text-red-500 text-center">{error}</Text>}
+      </View>
+    </View>
+<% } else { %>
+    <View style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>Welcome</Text>
+        <Text style={styles.subtitle}>
+          Create a wallet with your fingerprint or face. No seed phrases.
+        </Text>
+        <TouchableOpacity
+          style={[styles.button, isConnecting && styles.buttonDisabled]}
+          onPress={handleStart}
+          disabled={isConnecting}
+        >
+          {isConnecting ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.buttonText}>Create Wallet</Text>
+          )}
+        </TouchableOpacity>
+        <Text style={styles.hint}>Secured by passkeys</Text>
+        {error && <Text style={styles.error}>{error}</Text>}
+      </View>
+    </View>
+<% } %>
+  );
+}

@@ -1,0 +1,13 @@
+"use client";
+import { useWallet } from "@lazorkit/wallet";
+import { Onboarding } from "@/components/Onboarding";
+import { Swap } from "@/components/Swap";
+
+export default function Home() {
+  const { isConnected } = useWallet();
+  return (
+    <main<% if (styling === 'tailwind') { %> className="min-h-screen flex items-center justify-center p-4"<% } else { %> style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}<% } %>>
+      {isConnected ? <Swap /> : <Onboarding />}
+    </main>
+  );
+}

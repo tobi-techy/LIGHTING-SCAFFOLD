@@ -1,0 +1,59 @@
+<% if (backend === 'supabase') { %>
+import { supabase, createOrGetUser, saveSwap, getSwapHistory, saveSignature } from "./supabase";
+
+export { supabase, createOrGetUser, saveSwap, getSwapHistory, saveSignature };
+
+// Hook to sync wallet on connect
+export async function onWalletConnect(walletAddress: string) {
+  return createOrGetUser(walletAddress);
+}
+
+// Hook to save swap after successful transaction
+export async function onSwapComplete(
+  walletAddress: string,
+  fromToken: string,
+  toToken: string,
+  fromAmount: string,
+  toAmount: string,
+  signature: string
+) {
+  return saveSwap({ wallet_address: walletAddress, from_token: fromToken, to_token: toToken, from_amount: fromAmount, to_amount: toAmount, signature });
+}
+
+// Hook to save signature after signing
+export async function onMessageSigned(walletAddress: string, message: string, signature: string) {
+  return saveSignature(walletAddress, message, signature);
+}
+<% } else if (backend === 'firebase') { %>
+import { db, createOrGetUser, saveSwap, getSwapHistory, saveSignature } from "./firebase";
+
+export { db, createOrGetUser, saveSwap, getSwapHistory, saveSignature };
+
+// Hook to sync wallet on connect
+export async function onWalletConnect(walletAddress: string) {
+  return createOrGetUser(walletAddress);
+}
+
+// Hook to save swap after successful transaction
+export async function onSwapComplete(
+  walletAddress: string,
+  fromToken: string,
+  toToken: string,
+  fromAmount: string,
+  toAmount: string,
+  signature: string
+) {
+  return saveSwap({ walletAddress, fromToken, toToken, fromAmount, toAmount, signature });
+}
+
+// Hook to save signature after signing
+export async function onMessageSigned(walletAddress: string, message: string, signature: string) {
+  return saveSignature(walletAddress, message, signature);
+}
+<% } else { %>
+// No backend configured - these are no-op stubs
+export async function onWalletConnect(_walletAddress: string) {}
+export async function onSwapComplete(..._args: any[]) {}
+export async function onMessageSigned(..._args: any[]) {}
+export async function getSwapHistory(_walletAddress: string) { return []; }
+<% } %>

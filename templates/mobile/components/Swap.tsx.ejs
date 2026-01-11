@@ -1,0 +1,236 @@
+import { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Modal<% if (styling !== 'nativewind') { %>, StyleSheet<% } %> } from 'react-native';
+import { useWallet } from '@lazorkit/wallet-mobile-adapter';
+import { PublicKey } from '@solana/web3.js';
+import * as Linking from 'expo-linking';
+
+const TOKENS = [
+  { symbol: 'SOL', mint: 'So11111111111111111111111111111111111111112', decimals: 9 },
+  { symbol: 'USDC', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+];
+
+const JUPITER_API = 'https://api.jup.ag/swap/v1';
+<% if (styling !== 'nativewind') { %>
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#fff', padding: 24, paddingTop: 60 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
+  title: { fontSize: 18, fontWeight: '600', color: '#0a0a0a' },
+  address: { fontSize: 12, color: '#a3a3a3' },
+  card: { borderWidth: 1, borderColor: '#e5e5e5', borderRadius: 12, padding: 16 },
+  label: { fontSize: 12, color: '#a3a3a3', marginBottom: 8 },
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  switchText: { fontSize: 12, color: '#a3a3a3' },
+  inputRow: { flexDirection: 'row', alignItems: 'center' },
+  input: { flex: 1, fontSize: 24, fontWeight: '500', color: '#0a0a0a' },
+  outputText: { flex: 1, fontSize: 24, fontWeight: '500', color: '#d4d4d4' },
+  arrow: { alignItems: 'center', marginVertical: 8 },
+  arrowBox: { width: 32, height: 32, borderWidth: 1, borderColor: '#e5e5e5', borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  arrowText: { color: '#a3a3a3', fontSize: 16 },
+  tokenBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f5f5f5', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, gap: 6 },
+  tokenText: { fontSize: 14, fontWeight: '500', color: '#0a0a0a' },
+  tokenArrow: { fontSize: 10, color: '#a3a3a3' },
+  button: { marginTop: 16, backgroundColor: '#0a0a0a', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  buttonSecondary: { marginTop: 8, backgroundColor: 'transparent', borderWidth: 1, borderColor: '#e5e5e5', paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
+  buttonDisabled: { opacity: 0.5 },
+  buttonText: { color: '#fff', fontSize: 14, fontWeight: '500' },
+  buttonTextSecondary: { color: '#0a0a0a', fontSize: 13, fontWeight: '500' },
+  result: { marginTop: 12, fontSize: 14, textAlign: 'center' },
+  footer: { marginTop: 16, fontSize: 12, color: '#a3a3a3', textAlign: 'center' },
+  quote: { fontSize: 12, color: '#737373', marginTop: 8 },
+  modal: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, paddingBottom: 32 },
+  modalTitle: { fontSize: 16, fontWeight: '600', marginBottom: 16, textAlign: 'center' },
+  modalItem: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
+  modalItemText: { fontSize: 16 },
+});
+<% } %>
+export function Swap() {
+  const { disconnect, wallet, signAndSendTransaction, signMessage } = useWallet();
+  const [fromToken, setFromToken] = useState(TOKENS[0]);
+  const [toToken, setToToken] = useState(TOKENS[1]);
+  const [amount, setAmount] = useState('');
+  const [quote, setQuote] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showPicker, setShowPicker] = useState<'from' | 'to' | null>(null);
+  const redirectUrl = Linking.createURL('/');
+
+  const switchTokens = () => {
+    setFromToken(toToken);
+    setToToken(fromToken);
+    setAmount('');
+    setQuote(null);
+  };
+
+  useEffect(() => {
+    if (!amount || parseFloat(amount) <= 0) { setQuote(null); return; }
+    const timeout = setTimeout(async () => {
+      try {
+        const inputAmount = Math.floor(parseFloat(amount) * 10 ** fromToken.decimals);
+        const res = await fetch(`${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=50`);
+        const data = await res.json();
+        if (data.outAmount) setQuote(data);
+      } catch (e) { console.error('Quote error:', e); }
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [amount, fromToken, toToken]);
+
+  const outputAmount = quote ? (parseInt(quote.outAmount) / 10 ** toToken.decimals).toFixed(toToken.decimals === 6 ? 2 : 4) : '0.00';
+
+  const handleSwap = async () => {
+    if (!wallet?.smartWallet || !quote) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const swapRes = await fetch(`${JUPITER_API}/swap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteResponse: quote, userPublicKey: wallet.smartWallet, dynamicComputeUnitLimit: true, dynamicSlippage: true }),
+      });
+      const { swapTransaction } = await swapRes.json();
+      const sig = await signAndSendTransaction({ instructions: [], transactionOptions: { feeToken: 'USDC' } }, { redirectUrl });
+      setResult({ success: true, message: `Swapped! ${sig.slice(0, 8)}...` });
+      setAmount('');
+      setQuote(null);
+    } catch (e) {
+      setResult({ success: false, message: e instanceof Error ? e.message : 'Swap failed' });
+    } finally { setLoading(false); }
+  };
+
+  const handleSignMessage = async () => {
+    setSigning(true);
+    setResult(null);
+    try {
+      const message = `Verify wallet ownership\nTimestamp: ${Date.now()}`;
+      const signature = await signMessage(message, { redirectUrl });
+      setResult({ success: true, message: `Signed: ${signature.slice(0, 16)}...` });
+    } catch (e) {
+      setResult({ success: false, message: e instanceof Error ? e.message : 'Sign failed' });
+    } finally { setSigning(false); }
+  };
+
+  const addr = wallet?.smartWallet || '';
+
+  return (
+<% if (styling === 'nativewind') { %>
+    <View className="flex-1 bg-white p-6 pt-16">
+      <View className="flex-row items-center justify-between mb-6">
+        <Text className="text-lg font-semibold text-black">Swap</Text>
+        <TouchableOpacity onPress={() => disconnect()}>
+          <Text className="text-xs text-neutral-400">{addr.slice(0, 6)}...{addr.slice(-4)}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View className="border border-neutral-200 rounded-xl p-4">
+        <View className="flex-row justify-between mb-2">
+          <Text className="text-xs text-neutral-400">From</Text>
+          <TouchableOpacity onPress={switchTokens}><Text className="text-xs text-neutral-400">Switch</Text></TouchableOpacity>
+        </View>
+        <View className="flex-row items-center">
+          <TextInput className="flex-1 text-2xl font-medium text-black" placeholder="0.00" placeholderTextColor="#d4d4d4" value={amount} onChangeText={setAmount} keyboardType="numeric" />
+          <TouchableOpacity className="flex-row items-center bg-neutral-100 px-3 py-2 rounded-lg" onPress={() => setShowPicker('from')}>
+            <Text className="text-sm font-medium mr-1">{fromToken.symbol}</Text><Text className="text-xs text-neutral-400">▼</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View className="items-center my-2">
+        <View className="w-8 h-8 border border-neutral-200 rounded-lg items-center justify-center"><Text className="text-neutral-400">↓</Text></View>
+      </View>
+
+      <View className="border border-neutral-200 rounded-xl p-4">
+        <Text className="text-xs text-neutral-400 mb-2">To</Text>
+        <View className="flex-row items-center">
+          <Text className="flex-1 text-2xl font-medium text-neutral-300">{outputAmount}</Text>
+          <TouchableOpacity className="flex-row items-center bg-neutral-100 px-3 py-2 rounded-lg" onPress={() => setShowPicker('to')}>
+            <Text className="text-sm font-medium mr-1">{toToken.symbol}</Text><Text className="text-xs text-neutral-400">▼</Text>
+          </TouchableOpacity>
+        </View>
+        {quote && <Text className="text-xs text-neutral-400 mt-2">via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || 'Best route'}</Text>}
+      </View>
+
+      <TouchableOpacity className={`mt-4 bg-black py-3.5 rounded-xl items-center ${loading || !quote ? 'opacity-50' : ''}`} onPress={handleSwap} disabled={loading || !quote}>
+        {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text className="text-white text-sm font-medium">Swap</Text>}
+      </TouchableOpacity>
+
+      <TouchableOpacity className={`mt-2 border border-neutral-200 py-3 rounded-xl items-center ${signing ? 'opacity-50' : ''}`} onPress={handleSignMessage} disabled={signing}>
+        {signing ? <ActivityIndicator color="#0a0a0a" size="small" /> : <Text className="text-black text-sm font-medium">Sign Message</Text>}
+      </TouchableOpacity>
+
+      {result && <Text className={`mt-3 text-sm text-center ${result.success ? 'text-neutral-500' : 'text-red-500'}`}>{result.message}</Text>}
+      <Text className="mt-4 text-xs text-center text-neutral-400">Gas sponsored · Powered by LazorKit + Jupiter</Text>
+
+      <Modal visible={!!showPicker} transparent animationType="slide" onRequestClose={() => setShowPicker(null)}>
+        <TouchableOpacity className="flex-1 justify-end bg-black/30" activeOpacity={1} onPress={() => setShowPicker(null)}>
+          <View className="bg-white rounded-t-2xl p-4 pb-8">
+            <Text className="text-base font-semibold text-center mb-4">Select Token</Text>
+            {TOKENS.filter(t => t.symbol !== (showPicker === 'from' ? toToken.symbol : fromToken.symbol)).map(t => (
+              <TouchableOpacity key={t.symbol} className="py-3.5 border-b border-neutral-100" onPress={() => { showPicker === 'from' ? setFromToken(t) : setToToken(t); setShowPicker(null); }}>
+                <Text className="text-base">{t.symbol}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+<% } else { %>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Swap</Text>
+        <TouchableOpacity onPress={() => disconnect()}><Text style={styles.address}>{addr.slice(0, 6)}...{addr.slice(-4)}</Text></TouchableOpacity>
+      </View>
+
+      <View style={styles.card}>
+        <View style={styles.labelRow}>
+          <Text style={styles.label}>From</Text>
+          <TouchableOpacity onPress={switchTokens}><Text style={styles.switchText}>Switch</Text></TouchableOpacity>
+        </View>
+        <View style={styles.inputRow}>
+          <TextInput style={styles.input} placeholder="0.00" placeholderTextColor="#d4d4d4" value={amount} onChangeText={setAmount} keyboardType="numeric" />
+          <TouchableOpacity style={styles.tokenBtn} onPress={() => setShowPicker('from')}>
+            <Text style={styles.tokenText}>{fromToken.symbol}</Text><Text style={styles.tokenArrow}>▼</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.arrow}><View style={styles.arrowBox}><Text style={styles.arrowText}>↓</Text></View></View>
+
+      <View style={styles.card}>
+        <Text style={styles.label}>To</Text>
+        <View style={styles.inputRow}>
+          <Text style={styles.outputText}>{outputAmount}</Text>
+          <TouchableOpacity style={styles.tokenBtn} onPress={() => setShowPicker('to')}>
+            <Text style={styles.tokenText}>{toToken.symbol}</Text><Text style={styles.tokenArrow}>▼</Text>
+          </TouchableOpacity>
+        </View>
+        {quote && <Text style={styles.quote}>via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || 'Best route'}</Text>}
+      </View>
+
+      <TouchableOpacity style={[styles.button, (loading || !quote) && styles.buttonDisabled]} onPress={handleSwap} disabled={loading || !quote}>
+        {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.buttonText}>Swap</Text>}
+      </TouchableOpacity>
+
+      <TouchableOpacity style={[styles.buttonSecondary, signing && styles.buttonDisabled]} onPress={handleSignMessage} disabled={signing}>
+        {signing ? <ActivityIndicator color="#0a0a0a" size="small" /> : <Text style={styles.buttonTextSecondary}>Sign Message</Text>}
+      </TouchableOpacity>
+
+      {result && <Text style={[styles.result, { color: result.success ? '#737373' : '#ef4444' }]}>{result.message}</Text>}
+      <Text style={styles.footer}>Gas sponsored · Powered by LazorKit + Jupiter</Text>
+
+      <Modal visible={!!showPicker} transparent animationType="slide" onRequestClose={() => setShowPicker(null)}>
+        <TouchableOpacity style={styles.modal} activeOpacity={1} onPress={() => setShowPicker(null)}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Token</Text>
+            {TOKENS.filter(t => t.symbol !== (showPicker === 'from' ? toToken.symbol : fromToken.symbol)).map(t => (
+              <TouchableOpacity key={t.symbol} style={styles.modalItem} onPress={() => { showPicker === 'from' ? setFromToken(t) : setToToken(t); setShowPicker(null); }}>
+                <Text style={styles.modalItemText}>{t.symbol}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+<% } %>
+  );
+}

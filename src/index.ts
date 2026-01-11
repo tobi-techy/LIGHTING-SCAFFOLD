@@ -31,14 +31,18 @@ program
       const preset = (opts.preset || "mobile") as Preset;
       const isMobile = preset === "mobile" || preset === "fullstack-mobile";
       const hasBackend = preset.includes("fullstack") || preset === "monorepo";
+      const hasWeb = preset === "web" || preset === "fullstack-web" || preset === "monorepo";
 
       config = {
         name,
         preset,
-        backend: hasBackend ? "supabase" : "none",
+        webFramework: "nextjs",
+        backend: hasBackend ? "nestjs-postgres" : "none",
         styling: isMobile ? "nativewind" : "tailwind",
         state: "zustand",
         components: isMobile ? "nativewind-ui" : "shadcn",
+        animation: isMobile ? "reanimated" : "framer",
+        eas: isMobile,
         packageManager: "npm",
         gitInit: true,
       };
