@@ -1,17 +1,8 @@
 import fs from "fs-extra";
 import path from "path";
 import ejs from "ejs";
-import { spawn } from "child_process";
 import { ProjectConfig, isMonorepoPreset, PRESET_INFO } from "./utils/types.js";
 import { getTemplatesDir } from "./utils/helpers.js";
-
-function runCommand(cmd: string, args: string[], cwd: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: "inherit", shell: true });
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} failed`))));
-    child.on("error", reject);
-  });
-}
 
 export async function scaffold(config: ProjectConfig): Promise<string> {
   const targetDir = path.resolve(process.cwd(), config.name);
@@ -48,21 +39,16 @@ export async function scaffold(config: ProjectConfig): Promise<string> {
 
   const platform = platforms[0];
 
-  // Layer customizations
   await addDependencies(appDir, platform, config);
   await copyTemplate(path.join(templatesDir, "state", config.state), path.join(appDir, "lib/store"), config);
   if (config.components !== "none") {
     await copyTemplate(path.join(templatesDir, "components", config.components), path.join(appDir, "components/ui"), config);
   }
 
-  // Copy backend lib if backend is configured
   if (config.backend !== "none") {
-    await copyTemplate(path.join(templatesDir, "backend", config.backend.replace(/-.*/, "")), path.join(appDir, "lib/backend"), config);
+    await copyTemplate(path.join(templatesDir, "backend", config.backend), path.join(appDir, "lib/backend"), config);
     await copyTemplate(path.join(templatesDir, "lib"), path.join(appDir, "lib"), config);
   }
-
-  // Copy app templates (layout, page, components)
-  await copyAppTemplates(appDir, platform, config);
 
   await copyTemplate(path.join(templatesDir, "base"), targetDir, config);
 
@@ -70,68 +56,19 @@ export async function scaffold(config: ProjectConfig): Promise<string> {
 }
 
 async function scaffoldMobile(cwd: string, name: string, config: ProjectConfig): Promise<void> {
-  await runCommand("npx", ["create-expo-app@latest", name, "--template", "blank-typescript", "--no-install"], cwd);
+  const templatesDir = getTemplatesDir();
+  await copyTemplate(path.join(templatesDir, "mobile"), path.join(cwd, name), config);
 }
 
 async function scaffoldWeb(cwd: string, name: string, config: ProjectConfig): Promise<void> {
-  if (config.webFramework === "vite") {
-    await runCommand("npm", ["create", "vite@latest", name, "--", "--template", "react-ts"], cwd);
-  } else {
-    const tailwindFlag = config.styling === "tailwind" ? "--tailwind" : "--no-tailwind";
-    await runCommand("npx", ["create-next-app@latest", name, "--typescript", tailwindFlag, "--eslint", "--app", "--no-src-dir", "--no-import-alias", "--no-install"], cwd);
-  }
+  const templatesDir = getTemplatesDir();
+  const templateName = config.webFramework === "vite" ? "vite" : "web";
+  await copyTemplate(path.join(templatesDir, templateName), path.join(cwd, name), config);
 }
 
 async function scaffoldBackend(cwd: string, name: string, config: ProjectConfig): Promise<void> {
-  if (config.backend.startsWith("nestjs")) {
-    await runCommand("npx", ["@nestjs/cli", "new", name, "--package-manager", config.packageManager, "--skip-install", "--skip-git"], cwd);
-    
-    const backendDir = path.join(cwd, name);
-    if (config.backend === "nestjs-postgres") {
-      await addPrismaSetup(backendDir);
-    } else if (config.backend === "nestjs-mongodb") {
-      await addMongooseSetup(backendDir);
-    }
-  } else {
-    const templatesDir = getTemplatesDir();
-    await copyTemplate(path.join(templatesDir, "backend", config.backend), path.join(cwd, name), config);
-  }
-}
-
-async function addPrismaSetup(backendDir: string): Promise<void> {
-  const pkgPath = path.join(backendDir, "package.json");
-  const pkg = await fs.readJson(pkgPath);
-  pkg.dependencies["@prisma/client"] = "^5.10.0";
-  pkg.devDependencies["prisma"] = "^5.10.0";
-  pkg.scripts["db:generate"] = "prisma generate";
-  pkg.scripts["db:migrate"] = "prisma migrate dev";
-  pkg.scripts["db:push"] = "prisma db push";
-  await fs.writeJson(pkgPath, pkg, { spaces: 2 });
-
-  await fs.ensureDir(path.join(backendDir, "prisma"));
-  await fs.writeFile(path.join(backendDir, "prisma/schema.prisma"), `datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-generator client {
-  provider = "prisma-client-js"
-}
-
-model User {
-  id        String   @id @default(cuid())
-  wallet    String   @unique
-  createdAt DateTime @default(now())
-}
-`);
-}
-
-async function addMongooseSetup(backendDir: string): Promise<void> {
-  const pkgPath = path.join(backendDir, "package.json");
-  const pkg = await fs.readJson(pkgPath);
-  pkg.dependencies["@nestjs/mongoose"] = "^10.0.0";
-  pkg.dependencies["mongoose"] = "^8.2.0";
-  await fs.writeJson(pkgPath, pkg, { spaces: 2 });
+  const templatesDir = getTemplatesDir();
+  await copyTemplate(path.join(templatesDir, "backend", config.backend), path.join(cwd, name), config);
 }
 
 async function setupMonorepo(targetDir: string, config: ProjectConfig): Promise<void> {
@@ -164,7 +101,6 @@ async function addDependencies(appDir: string, platform: "mobile" | "web", confi
   pkg.dependencies = pkg.dependencies || {};
   pkg.devDependencies = pkg.devDependencies || {};
 
-  // State management
   if (config.state === "zustand") {
     pkg.dependencies["zustand"] = "^4.5.0";
   } else {
@@ -172,7 +108,6 @@ async function addDependencies(appDir: string, platform: "mobile" | "web", confi
     pkg.dependencies["react-redux"] = "^9.0.0";
   }
 
-  // Animations
   if (config.animation === "reanimated") {
     pkg.dependencies["react-native-reanimated"] = "^3.10.0";
     pkg.dependencies["react-native-gesture-handler"] = "^2.16.0";
@@ -183,7 +118,6 @@ async function addDependencies(appDir: string, platform: "mobile" | "web", confi
     pkg.dependencies["framer-motion"] = "^11.0.0";
   }
 
-  // Platform-specific LazorKit + dependencies
   if (platform === "mobile") {
     pkg.dependencies["@lazorkit/wallet-mobile-adapter"] = "latest";
     pkg.dependencies["@solana/web3.js"] = "^1.95.0";
@@ -203,11 +137,9 @@ async function addDependencies(appDir: string, platform: "mobile" | "web", confi
     pkg.dependencies["@solana/web3.js"] = "^1.95.0";
     pkg.dependencies["@coral-xyz/anchor"] = "^0.30.0";
     pkg.dependencies["buffer"] = "^6.0.3";
-    // Vite-specific polyfills
     if (config.webFramework === "vite") {
       pkg.devDependencies["vite-plugin-node-polyfills"] = "^0.22.0";
     }
-    // Tailwind for web
     if (config.styling === "tailwind" && config.webFramework === "vite") {
       pkg.devDependencies["tailwindcss"] = "^3.4.0";
       pkg.devDependencies["postcss"] = "^8.4.0";
@@ -215,7 +147,6 @@ async function addDependencies(appDir: string, platform: "mobile" | "web", confi
     }
   }
 
-  // Backend dependencies
   if (config.backend === "supabase") {
     pkg.dependencies["@supabase/supabase-js"] = "^2.39.0";
   } else if (config.backend === "firebase") {
@@ -238,27 +169,6 @@ async function addEasConfig(appDir: string, config: ProjectConfig): Promise<void
   await fs.writeJson(path.join(appDir, "eas.json"), easConfig, { spaces: 2 });
 }
 
-async function copyAppTemplates(appDir: string, platform: "mobile" | "web", config: ProjectConfig): Promise<void> {
-  const templatesDir = getTemplatesDir();
-  
-  if (platform === "web" && config.webFramework === "vite") {
-    // Vite: copy from vite template
-    const viteDir = path.join(templatesDir, "vite");
-    await copyTemplate(path.join(viteDir, "src"), path.join(appDir, "src"), config);
-    await copyTemplate(viteDir, appDir, config, ["src"]); // Copy root files except src
-  } else if (platform === "web") {
-    // Next.js: copy from web template
-    const webDir = path.join(templatesDir, "web");
-    await copyTemplate(path.join(webDir, "app"), path.join(appDir, "app"), config);
-    await copyTemplate(path.join(webDir, "components"), path.join(appDir, "components"), config);
-  } else {
-    // Mobile: copy from mobile template
-    const mobileDir = path.join(templatesDir, "mobile");
-    await copyTemplate(path.join(mobileDir, "app"), path.join(appDir, "app"), config);
-    await copyTemplate(path.join(mobileDir, "components"), path.join(appDir, "components"), config);
-  }
-}
-
 async function copyTemplate(src: string, dest: string, config: ProjectConfig, exclude: string[] = []): Promise<void> {
   if (!(await fs.pathExists(src))) return;
 
@@ -277,7 +187,6 @@ async function copyTemplate(src: string, dest: string, config: ProjectConfig, ex
     } else if (file.name.endsWith(".ejs")) {
       const content = await fs.readFile(srcPath, "utf-8");
       const rendered = ejs.render(content, config);
-      // Skip empty files (e.g., tailwind config when not using tailwind)
       if (rendered.trim()) {
         await fs.writeFile(destPath, rendered);
       }
