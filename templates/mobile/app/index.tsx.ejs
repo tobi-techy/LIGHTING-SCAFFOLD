@@ -1,0 +1,44 @@
+import { useState } from 'react';
+import { View, Text, TouchableOpacity<% if (styling !== 'nativewind') { %>, StyleSheet<% } %> } from 'react-native';
+import { useWallet } from '@lazorkit/wallet-mobile-adapter';
+import { Onboarding } from '@/components/Onboarding';
+import { Swap } from '@/components/Swap';
+import { Recovery } from '@/components/Recovery';
+import { History } from '@/components/History';
+<% if (styling !== 'nativewind') { %>
+const styles = StyleSheet.create({
+  nav: { flexDirection: 'row', justifyContent: 'center', gap: 16, paddingVertical: 16 },
+  navBtn: { fontSize: 12, color: '#737373' },
+});
+<% } %>
+type Screen = 'swap' | 'recovery' | 'history';
+
+export default function Index() {
+  const { isConnected } = useWallet();
+  const [screen, setScreen] = useState<Screen>('swap');
+
+  if (!isConnected) return <Onboarding />;
+
+  return (
+    <>
+      {screen === 'swap' && (
+        <>
+          <Swap />
+<% if (styling === 'nativewind') { %>
+          <View className="flex-row justify-center gap-4 py-4 bg-white">
+            <TouchableOpacity onPress={() => setScreen('history')}><Text className="text-xs text-neutral-500">History</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => setScreen('recovery')}><Text className="text-xs text-neutral-500">Recovery</Text></TouchableOpacity>
+          </View>
+<% } else { %>
+          <View style={styles.nav}>
+            <TouchableOpacity onPress={() => setScreen('history')}><Text style={styles.navBtn}>History</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => setScreen('recovery')}><Text style={styles.navBtn}>Recovery</Text></TouchableOpacity>
+          </View>
+<% } %>
+        </>
+      )}
+      {screen === 'recovery' && <Recovery onBack={() => setScreen('swap')} />}
+      {screen === 'history' && <History onBack={() => setScreen('swap')} />}
+    </>
+  );
+}

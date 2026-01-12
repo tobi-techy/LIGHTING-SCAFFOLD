@@ -1,0 +1,108 @@
+"use client";
+import { useState } from "react";
+import { useWallet } from "@lazorkit/wallet";
+<% if (styling !== 'tailwind') { %>
+const styles: Record<string, React.CSSProperties> = {
+  container: { width: '100%', maxWidth: 360 },
+  title: { fontSize: 18, fontWeight: 600, margin: 0 },
+  subtitle: { marginTop: 8, fontSize: 14, color: '#737373', lineHeight: 1.5 },
+  card: { marginTop: 16, border: '1px solid #e5e5e5', borderRadius: 12, padding: 16 },
+  cardTitle: { fontSize: 14, fontWeight: 500, margin: 0 },
+  cardDesc: { marginTop: 4, fontSize: 13, color: '#737373' },
+  button: { marginTop: 12, width: '100%', backgroundColor: '#0a0a0a', color: '#fff', padding: '12px 16px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  buttonSecondary: { marginTop: 12, width: '100%', backgroundColor: 'transparent', color: '#0a0a0a', padding: '12px 16px', borderRadius: 10, border: '1px solid #e5e5e5', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  info: { marginTop: 16, padding: 12, backgroundColor: '#f5f5f5', borderRadius: 8, fontSize: 12, color: '#525252' },
+  back: { marginTop: 16, fontSize: 13, color: '#737373', background: 'none', border: 'none', cursor: 'pointer' },
+};
+<% } %>
+interface Props {
+  onBack: () => void;
+}
+
+export function Recovery({ onBack }: Props) {
+  const { wallet } = useWallet();
+  const [copied, setCopied] = useState(false);
+  const portalUrl = process.env.NEXT_PUBLIC_LAZORKIT_PORTAL_URL || "https://portal.lazor.sh";
+
+  const handleAddDevice = () => {
+    window.open(`${portalUrl}/recovery/add-device`, "_blank");
+  };
+
+  const handleManageDevices = () => {
+    window.open(`${portalUrl}/recovery/devices`, "_blank");
+  };
+
+  const copyAddress = () => {
+    if (wallet?.smartWallet) {
+      navigator.clipboard.writeText(wallet.smartWallet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+<% if (styling === 'tailwind') { %>
+    <div className="w-full max-w-sm">
+      <h1 className="text-lg font-semibold">Recovery & Backup</h1>
+      <p className="mt-2 text-sm text-neutral-500">
+        Add backup passkeys from other devices to ensure you never lose access.
+      </p>
+      <div className="mt-4 border border-neutral-200 rounded-xl p-4">
+        <h3 className="text-sm font-medium">Add Backup Device</h3>
+        <p className="mt-1 text-xs text-neutral-500">
+          Register a passkey from another phone, tablet, or computer.
+        </p>
+        <button onClick={handleAddDevice} className="mt-3 w-full py-3 bg-black text-white text-sm font-medium rounded-lg hover:opacity-90">
+          Add Device
+        </button>
+      </div>
+      <div className="mt-3 border border-neutral-200 rounded-xl p-4">
+        <h3 className="text-sm font-medium">Manage Devices</h3>
+        <p className="mt-1 text-xs text-neutral-500">
+          View and remove registered passkeys.
+        </p>
+        <button onClick={handleManageDevices} className="mt-3 w-full py-3 bg-transparent text-black text-sm font-medium rounded-lg border border-neutral-200 hover:bg-neutral-50">
+          View Devices
+        </button>
+      </div>
+      <div className="mt-4 p-3 bg-neutral-100 rounded-lg">
+        <p className="text-xs text-neutral-600">
+          <strong>Wallet:</strong>{" "}
+          <button onClick={copyAddress} className="font-mono hover:text-black">
+            {wallet?.smartWallet?.slice(0, 8)}...{wallet?.smartWallet?.slice(-8)}
+          </button>
+          {copied && <span className="ml-2 text-green-600">Copied!</span>}
+        </p>
+      </div>
+      <button onClick={onBack} className="mt-4 text-sm text-neutral-500 hover:text-black">
+        ← Back
+      </button>
+    </div>
+<% } else { %>
+    <div style={styles.container}>
+      <h1 style={styles.title}>Recovery & Backup</h1>
+      <p style={styles.subtitle}>
+        Add backup passkeys from other devices to ensure you never lose access.
+      </p>
+      <div style={styles.card}>
+        <h3 style={styles.cardTitle}>Add Backup Device</h3>
+        <p style={styles.cardDesc}>Register a passkey from another phone, tablet, or computer.</p>
+        <button onClick={handleAddDevice} style={styles.button}>Add Device</button>
+      </div>
+      <div style={styles.card}>
+        <h3 style={styles.cardTitle}>Manage Devices</h3>
+        <p style={styles.cardDesc}>View and remove registered passkeys.</p>
+        <button onClick={handleManageDevices} style={styles.buttonSecondary}>View Devices</button>
+      </div>
+      <div style={styles.info}>
+        <strong>Wallet:</strong>{" "}
+        <button onClick={copyAddress} style={{ fontFamily: 'monospace', background: 'none', border: 'none', cursor: 'pointer' }}>
+          {wallet?.smartWallet?.slice(0, 8)}...{wallet?.smartWallet?.slice(-8)}
+        </button>
+        {copied && <span style={{ marginLeft: 8, color: '#16a34a' }}>Copied!</span>}
+      </div>
+      <button onClick={onBack} style={styles.back}>← Back</button>
+    </div>
+<% } %>
+  );
+}

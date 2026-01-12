@@ -1,8 +1,44 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Modal<% if (styling !== 'nativewind') { %>, StyleSheet<% } %> } from 'react-native';
 import { useWallet } from '@lazorkit/wallet-mobile-adapter';
-import { PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey } from '@solana/web3.js';
 import * as Linking from 'expo-linking';
+
+const TOKENS = [
+  { symbol: 'SOL', mint: 'So11111111111111111111111111111111111111112', decimals: 9 },
+  { symbol: 'USDC', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+  { symbol: 'USDT', mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
+  { symbol: 'BONK', mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', decimals: 5 },
+  { symbol: 'JUP', mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', decimals: 6 },
+];
+
+const SLIPPAGE_OPTIONS = [50, 100, 300];
+
+const JUPITER_API = 'https://api.jup.ag/swap/v1';
+
+function useBalances(walletAddress: string | undefined) {
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!walletAddress) return;
+    const rpc = process.env.EXPO_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
+    const conn = new Connection(rpc);
+    const pk = new PublicKey(walletAddress);
+    
+    conn.getBalance(pk).then((bal) => setBalances((b) => ({ ...b, SOL: bal / 1e9 }))).catch(() => {});
+    
+    conn.getParsedTokenAccountsByOwner(pk, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') })
+      .then((res) => {
+        const tokenBals: Record<string, number> = {};
+        res.value.forEach((acc) => {
+          const info = acc.account.data.parsed.info;
+          const token = TOKENS.find((t) => t.mint === info.mint);
+          if (token) tokenBals[token.symbol] = info.tokenAmount.uiAmount || 0;
+        });
+        setBalances((b) => ({ ...b, ...tokenBals }));
+      }).catch(() => {});
+  }, [walletAddress]);
+  return balances;
+}
 
 const TOKENS = [
   { symbol: 'SOL', mint: 'So11111111111111111111111111111111111111112', decimals: 9 },
@@ -46,9 +82,11 @@ const styles = StyleSheet.create({
 <% } %>
 export function Swap() {
   const { disconnect, wallet, signAndSendTransaction, signMessage } = useWallet();
+  const balances = useBalances(wallet?.smartWallet);
   const [fromToken, setFromToken] = useState(TOKENS[0]);
   const [toToken, setToToken] = useState(TOKENS[1]);
   const [amount, setAmount] = useState('');
+  const [slippage, setSlippage] = useState(SLIPPAGE_OPTIONS[0]);
   const [quote, setQuote] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [signing, setSigning] = useState(false);
@@ -68,13 +106,13 @@ export function Swap() {
     const timeout = setTimeout(async () => {
       try {
         const inputAmount = Math.floor(parseFloat(amount) * 10 ** fromToken.decimals);
-        const res = await fetch(`${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=50`);
+        const res = await fetch(`${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}`);
         const data = await res.json();
         if (data.outAmount) setQuote(data);
       } catch (e) { console.error('Quote error:', e); }
     }, 500);
     return () => clearTimeout(timeout);
-  }, [amount, fromToken, toToken]);
+  }, [amount, fromToken, toToken, slippage]);
 
   const outputAmount = quote ? (parseInt(quote.outAmount) / 10 ** toToken.decimals).toFixed(toToken.decimals === 6 ? 2 : 4) : '0.00';
 
@@ -125,7 +163,7 @@ export function Swap() {
       <View className="border border-neutral-200 rounded-xl p-4">
         <View className="flex-row justify-between mb-2">
           <Text className="text-xs text-neutral-400">From</Text>
-          <TouchableOpacity onPress={switchTokens}><Text className="text-xs text-neutral-400">Switch</Text></TouchableOpacity>
+          <Text className="text-xs text-neutral-400">Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</Text>
         </View>
         <View className="flex-row items-center">
           <TextInput className="flex-1 text-2xl font-medium text-black" placeholder="0.00" placeholderTextColor="#d4d4d4" value={amount} onChangeText={setAmount} keyboardType="numeric" />
@@ -133,14 +171,18 @@ export function Swap() {
             <Text className="text-sm font-medium mr-1">{fromToken.symbol}</Text><Text className="text-xs text-neutral-400">▼</Text>
           </TouchableOpacity>
         </View>
+        <TouchableOpacity onPress={() => setAmount(String(balances[fromToken.symbol] ?? 0))}><Text className="text-xs text-neutral-400 mt-1">Max</Text></TouchableOpacity>
       </View>
 
       <View className="items-center my-2">
-        <View className="w-8 h-8 border border-neutral-200 rounded-lg items-center justify-center"><Text className="text-neutral-400">↓</Text></View>
+        <TouchableOpacity onPress={switchTokens} className="w-8 h-8 border border-neutral-200 rounded-lg items-center justify-center"><Text className="text-neutral-400">↓</Text></TouchableOpacity>
       </View>
 
       <View className="border border-neutral-200 rounded-xl p-4">
-        <Text className="text-xs text-neutral-400 mb-2">To</Text>
+        <View className="flex-row justify-between mb-2">
+          <Text className="text-xs text-neutral-400">To</Text>
+          <Text className="text-xs text-neutral-400">Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</Text>
+        </View>
         <View className="flex-row items-center">
           <Text className="flex-1 text-2xl font-medium text-neutral-300">{outputAmount}</Text>
           <TouchableOpacity className="flex-row items-center bg-neutral-100 px-3 py-2 rounded-lg" onPress={() => setShowPicker('to')}>
@@ -148,6 +190,17 @@ export function Swap() {
           </TouchableOpacity>
         </View>
         {quote && <Text className="text-xs text-neutral-400 mt-2">via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || 'Best route'}</Text>}
+      </View>
+
+      <View className="flex-row items-center justify-between mt-3">
+        <Text className="text-xs text-neutral-400">Slippage</Text>
+        <View className="flex-row gap-1">
+          {SLIPPAGE_OPTIONS.map((s) => (
+            <TouchableOpacity key={s} onPress={() => setSlippage(s)} className={`px-2 py-1 rounded ${slippage === s ? 'bg-black' : 'bg-neutral-100'}`}>
+              <Text className={`text-xs ${slippage === s ? 'text-white' : 'text-neutral-600'}`}>{s / 100}%</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       <TouchableOpacity className={`mt-4 bg-black py-3.5 rounded-xl items-center ${loading || !quote ? 'opacity-50' : ''}`} onPress={handleSwap} disabled={loading || !quote}>
@@ -184,7 +237,7 @@ export function Swap() {
       <View style={styles.card}>
         <View style={styles.labelRow}>
           <Text style={styles.label}>From</Text>
-          <TouchableOpacity onPress={switchTokens}><Text style={styles.switchText}>Switch</Text></TouchableOpacity>
+          <Text style={styles.label}>Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</Text>
         </View>
         <View style={styles.inputRow}>
           <TextInput style={styles.input} placeholder="0.00" placeholderTextColor="#d4d4d4" value={amount} onChangeText={setAmount} keyboardType="numeric" />
@@ -192,12 +245,16 @@ export function Swap() {
             <Text style={styles.tokenText}>{fromToken.symbol}</Text><Text style={styles.tokenArrow}>▼</Text>
           </TouchableOpacity>
         </View>
+        <TouchableOpacity onPress={() => setAmount(String(balances[fromToken.symbol] ?? 0))}><Text style={styles.switchText}>Max</Text></TouchableOpacity>
       </View>
 
-      <View style={styles.arrow}><View style={styles.arrowBox}><Text style={styles.arrowText}>↓</Text></View></View>
+      <View style={styles.arrow}><TouchableOpacity onPress={switchTokens} style={styles.arrowBox}><Text style={styles.arrowText}>↓</Text></TouchableOpacity></View>
 
       <View style={styles.card}>
-        <Text style={styles.label}>To</Text>
+        <View style={styles.labelRow}>
+          <Text style={styles.label}>To</Text>
+          <Text style={styles.label}>Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</Text>
+        </View>
         <View style={styles.inputRow}>
           <Text style={styles.outputText}>{outputAmount}</Text>
           <TouchableOpacity style={styles.tokenBtn} onPress={() => setShowPicker('to')}>
@@ -205,6 +262,17 @@ export function Swap() {
           </TouchableOpacity>
         </View>
         {quote && <Text style={styles.quote}>via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || 'Best route'}</Text>}
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+        <Text style={{ fontSize: 12, color: '#a3a3a3' }}>Slippage</Text>
+        <View style={{ flexDirection: 'row', gap: 4 }}>
+          {SLIPPAGE_OPTIONS.map((s) => (
+            <TouchableOpacity key={s} onPress={() => setSlippage(s)} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: slippage === s ? '#0a0a0a' : '#f5f5f5' }}>
+              <Text style={{ fontSize: 12, color: slippage === s ? '#fff' : '#525252' }}>{s / 100}%</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       <TouchableOpacity style={[styles.button, (loading || !quote) && styles.buttonDisabled]} onPress={handleSwap} disabled={loading || !quote}>

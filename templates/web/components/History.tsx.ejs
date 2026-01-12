@@ -1,0 +1,114 @@
+"use client";
+import { useState, useEffect } from "react";
+import { useWallet } from "@lazorkit/wallet";
+import { Connection, PublicKey } from "@solana/web3.js";
+<% if (styling !== 'tailwind') { %>
+const styles: Record<string, React.CSSProperties> = {
+  container: { width: '100%', maxWidth: 360 },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  title: { fontSize: 18, fontWeight: 600, margin: 0 },
+  list: { display: 'flex', flexDirection: 'column', gap: 8 },
+  item: { border: '1px solid #e5e5e5', borderRadius: 12, padding: 12 },
+  row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  sig: { fontFamily: 'monospace', fontSize: 13, color: '#0a0a0a' },
+  time: { fontSize: 12, color: '#a3a3a3' },
+  status: { fontSize: 11, padding: '2px 6px', borderRadius: 4 },
+  success: { backgroundColor: '#dcfce7', color: '#166534' },
+  failed: { backgroundColor: '#fee2e2', color: '#991b1b' },
+  empty: { textAlign: 'center', padding: 32, color: '#a3a3a3', fontSize: 14 },
+  back: { fontSize: 13, color: '#737373', background: 'none', border: 'none', cursor: 'pointer' },
+  link: { color: '#0a0a0a', textDecoration: 'none' },
+};
+<% } %>
+interface Props {
+  onBack: () => void;
+}
+
+interface TxInfo {
+  signature: string;
+  slot: number;
+  blockTime: number | null;
+  err: any;
+}
+
+export function History({ onBack }: Props) {
+  const { wallet } = useWallet();
+  const [txs, setTxs] = useState<TxInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!wallet?.smartWallet) return;
+    const rpc = process.env.NEXT_PUBLIC_SOLANA_RPC || "https://api.devnet.solana.com";
+    const conn = new Connection(rpc);
+    conn.getSignaturesForAddress(new PublicKey(wallet.smartWallet), { limit: 10 })
+      .then((sigs) => setTxs(sigs.map((s) => ({ signature: s.signature, slot: s.slot, blockTime: s.blockTime, err: s.err }))))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [wallet?.smartWallet]);
+
+  const formatTime = (ts: number | null) => {
+    if (!ts) return "—";
+    return new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+
+  const explorerUrl = (sig: string) => {
+    const cluster = (process.env.NEXT_PUBLIC_SOLANA_RPC || "").includes("mainnet") ? "" : "?cluster=devnet";
+    return `https://solscan.io/tx/${sig}${cluster}`;
+  };
+
+  return (
+<% if (styling === 'tailwind') { %>
+    <div className="w-full max-w-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-semibold">History</h1>
+        <button onClick={onBack} className="text-sm text-neutral-500 hover:text-black">← Back</button>
+      </div>
+      {loading ? (
+        <p className="text-center py-8 text-neutral-400">Loading...</p>
+      ) : txs.length === 0 ? (
+        <p className="text-center py-8 text-neutral-400">No transactions yet</p>
+      ) : (
+        <div className="space-y-2">
+          {txs.map((tx) => (
+            <a key={tx.signature} href={explorerUrl(tx.signature)} target="_blank" rel="noopener noreferrer" className="block border border-neutral-200 rounded-xl p-3 hover:bg-neutral-50">
+              <div className="flex justify-between items-center">
+                <span className="font-mono text-sm">{tx.signature.slice(0, 8)}...{tx.signature.slice(-8)}</span>
+                <span className={`text-xs px-2 py-0.5 rounded ${tx.err ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
+                  {tx.err ? "Failed" : "Success"}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-400 mt-1">{formatTime(tx.blockTime)}</p>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+<% } else { %>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <h1 style={styles.title}>History</h1>
+        <button onClick={onBack} style={styles.back}>← Back</button>
+      </div>
+      {loading ? (
+        <p style={styles.empty}>Loading...</p>
+      ) : txs.length === 0 ? (
+        <p style={styles.empty}>No transactions yet</p>
+      ) : (
+        <div style={styles.list}>
+          {txs.map((tx) => (
+            <a key={tx.signature} href={explorerUrl(tx.signature)} target="_blank" rel="noopener noreferrer" style={{ ...styles.item, ...styles.link }}>
+              <div style={styles.row}>
+                <span style={styles.sig}>{tx.signature.slice(0, 8)}...{tx.signature.slice(-8)}</span>
+                <span style={{ ...styles.status, ...(tx.err ? styles.failed : styles.success) }}>
+                  {tx.err ? "Failed" : "Success"}
+                </span>
+              </div>
+              <p style={styles.time}>{formatTime(tx.blockTime)}</p>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+<% } %>
+  );
+}

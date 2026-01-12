@@ -346,6 +346,7 @@ async function addDependencies(appDir, platform, config) {
     pkg.dependencies["expo-crypto"] = "~15.0.0";
     pkg.dependencies["expo-linking"] = "~8.0.11";
     pkg.dependencies["expo-web-browser"] = "~15.0.10";
+    pkg.dependencies["expo-clipboard"] = "~7.0.0";
     if (config.styling === "nativewind") {
       pkg.dependencies["nativewind"] = "^4.0.0";
       pkg.devDependencies["tailwindcss"] = "^3.4.0";

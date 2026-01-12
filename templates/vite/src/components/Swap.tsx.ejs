@@ -1,13 +1,42 @@
 import { useState, useEffect } from 'react'
 import { useWallet } from '@lazorkit/wallet'
-import { VersionedTransaction } from '@solana/web3.js'
+import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js'
 
 const TOKENS = [
   { symbol: 'SOL', mint: 'So11111111111111111111111111111111111111112', decimals: 9 },
   { symbol: 'USDC', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+  { symbol: 'USDT', mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
+  { symbol: 'BONK', mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', decimals: 5 },
+  { symbol: 'JUP', mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', decimals: 6 },
 ]
 
+const SLIPPAGE_OPTIONS = [50, 100, 300]
+
 const JUPITER_API = 'https://api.jup.ag/swap/v1'
+
+function useBalances(walletAddress: string | undefined) {
+  const [balances, setBalances] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!walletAddress) return
+    const rpc = import.meta.env.VITE_SOLANA_RPC || 'https://api.devnet.solana.com'
+    const conn = new Connection(rpc)
+    const pk = new PublicKey(walletAddress)
+    
+    conn.getBalance(pk).then((bal) => setBalances((b) => ({ ...b, SOL: bal / 1e9 }))).catch(() => {})
+    
+    conn.getParsedTokenAccountsByOwner(pk, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') })
+      .then((res) => {
+        const tokenBals: Record<string, number> = {}
+        res.value.forEach((acc) => {
+          const info = acc.account.data.parsed.info
+          const token = TOKENS.find((t) => t.mint === info.mint)
+          if (token) tokenBals[token.symbol] = info.tokenAmount.uiAmount || 0
+        })
+        setBalances((b) => ({ ...b, ...tokenBals }))
+      }).catch(() => {})
+  }, [walletAddress])
+  return balances
+}
 <% if (styling !== 'tailwind') { %>
 const styles: Record<string, React.CSSProperties> = {
   container: { width: '100%', maxWidth: 360 },
@@ -33,9 +62,11 @@ const styles: Record<string, React.CSSProperties> = {
 <% } %>
 export function Swap() {
   const { disconnect, wallet, smartWalletPubkey, signAndSendTransaction, signMessage } = useWallet()
+  const balances = useBalances(wallet?.smartWallet)
   const [fromToken, setFromToken] = useState(TOKENS[0])
   const [toToken, setToToken] = useState(TOKENS[1])
   const [amount, setAmount] = useState('')
+  const [slippage, setSlippage] = useState(SLIPPAGE_OPTIONS[0])
   const [quote, setQuote] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [signing, setSigning] = useState(false)
@@ -53,13 +84,13 @@ export function Swap() {
     const timeout = setTimeout(async () => {
       try {
         const inputAmount = Math.floor(parseFloat(amount) * 10 ** fromToken.decimals)
-        const res = await fetch(`${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=50`)
+        const res = await fetch(`${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}`)
         const data = await res.json()
         if (data.outAmount) setQuote(data)
       } catch (e) { console.error('Quote error:', e) }
     }, 500)
     return () => clearTimeout(timeout)
-  }, [amount, fromToken, toToken])
+  }, [amount, fromToken, toToken, slippage])
 
   const outputAmount = quote ? (parseInt(quote.outAmount) / 10 ** toToken.decimals).toFixed(toToken.decimals === 6 ? 2 : 4) : '0.00'
 
@@ -108,21 +139,33 @@ export function Swap() {
         <div className="border border-neutral-200 rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-neutral-400">From</span>
-            <button onClick={switchTokens} className="text-xs text-neutral-400 hover:text-black">Switch</button>
+            <span className="text-xs text-neutral-400">Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</span>
           </div>
           <div className="flex items-center gap-3">
             <input type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} className="flex-1 text-2xl font-medium bg-transparent w-full focus:outline-none" />
             <TokenSelect token={fromToken} tokens={TOKENS} onChange={setFromToken} exclude={toToken.symbol} />
           </div>
+          <button onClick={() => setAmount(String(balances[fromToken.symbol] ?? 0))} className="text-xs text-neutral-400 hover:text-black mt-1">Max</button>
         </div>
-        <div className="flex justify-center"><div className="w-8 h-8 border border-neutral-200 rounded-lg flex items-center justify-center text-neutral-400">↓</div></div>
+        <div className="flex justify-center"><button onClick={switchTokens} className="w-8 h-8 border border-neutral-200 rounded-lg flex items-center justify-center text-neutral-400 hover:bg-neutral-50">↓</button></div>
         <div className="border border-neutral-200 rounded-xl p-4">
-          <span className="text-xs text-neutral-400">To</span>
-          <div className="flex items-center gap-3 mt-2">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-neutral-400">To</span>
+            <span className="text-xs text-neutral-400">Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</span>
+          </div>
+          <div className="flex items-center gap-3">
             <span className="flex-1 text-2xl font-medium text-neutral-300">{outputAmount}</span>
             <TokenSelect token={toToken} tokens={TOKENS} onChange={setToToken} exclude={fromToken.symbol} />
           </div>
           {quote && <p className="text-xs text-neutral-400 mt-2">via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || 'Best route'}</p>}
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-3 text-xs">
+        <span className="text-neutral-400">Slippage</span>
+        <div className="flex gap-1">
+          {SLIPPAGE_OPTIONS.map((s) => (
+            <button key={s} onClick={() => setSlippage(s)} className={`px-2 py-1 rounded ${slippage === s ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}>{s / 100}%</button>
+          ))}
         </div>
       </div>
       <button onClick={handleSwap} disabled={loading || !quote} className="mt-4 w-full py-3 bg-black text-white text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50">{loading ? 'Swapping...' : 'Swap'}</button>
@@ -137,20 +180,29 @@ export function Swap() {
         <button onClick={() => disconnect()} style={styles.address}>{addr.slice(0, 6)}...{addr.slice(-4)}</button>
       </div>
       <div style={styles.card}>
-        <div style={styles.label}><span>From</span><button onClick={switchTokens} style={{ ...styles.address, fontSize: 12 }}>Switch</button></div>
+        <div style={styles.label}><span>From</span><span>Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</span></div>
         <div style={styles.inputRow}>
           <input type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} style={styles.input} />
           <TokenSelect token={fromToken} tokens={TOKENS} onChange={setFromToken} exclude={toToken.symbol} />
         </div>
+        <button onClick={() => setAmount(String(balances[fromToken.symbol] ?? 0))} style={{ ...styles.address, fontSize: 12, marginTop: 4 }}>Max</button>
       </div>
-      <div style={styles.arrow}><div style={styles.arrowBox}>↓</div></div>
+      <div style={styles.arrow}><button onClick={switchTokens} style={{ ...styles.arrowBox, cursor: 'pointer', border: '1px solid #e5e5e5' }}>↓</button></div>
       <div style={styles.card}>
-        <div style={styles.label}><span>To</span></div>
+        <div style={styles.label}><span>To</span><span>Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</span></div>
         <div style={styles.inputRow}>
           <span style={{ ...styles.input, color: '#d4d4d4' }}>{outputAmount}</span>
           <TokenSelect token={toToken} tokens={TOKENS} onChange={setToToken} exclude={fromToken.symbol} />
         </div>
         {quote && <p style={styles.quote}>via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || 'Best route'}</p>}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
+        <span style={{ color: '#a3a3a3' }}>Slippage</span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {SLIPPAGE_OPTIONS.map((s) => (
+            <button key={s} onClick={() => setSlippage(s)} style={{ padding: '4px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', background: slippage === s ? '#0a0a0a' : '#f5f5f5', color: slippage === s ? '#fff' : '#525252' }}>{s / 100}%</button>
+          ))}
+        </div>
       </div>
       <button onClick={handleSwap} disabled={loading || !quote} style={{ ...styles.button, ...(loading || !quote ? styles.buttonDisabled : {}) }}>{loading ? 'Swapping...' : 'Swap'}</button>
       <button onClick={handleSignMessage} disabled={signing} style={{ ...styles.buttonSecondary, ...(signing ? styles.buttonDisabled : {}) }}>{signing ? 'Signing...' : 'Sign Message'}</button>

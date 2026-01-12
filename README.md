@@ -15,6 +15,9 @@ Every generated project includes:
 
 - **Passkey Onboarding** - Create wallets with Face ID/Touch ID, no seed phrases
 - **Token Swap UI** - Real swap interface powered by Jupiter aggregator (SOL ↔ USDC)
+- **Balance Display** - Real-time token balances with Max button
+- **Transaction History** - View past transactions with Solscan links
+- **Recovery & Backup** - Add backup passkeys from other devices
 - **Message Signing** - Verify wallet ownership with `signMessage`
 - **Gasless Transactions** - Users don't pay gas fees (paymaster sponsored)
 - **Smart Wallets** - LazorKit PDA-based accounts with recovery options

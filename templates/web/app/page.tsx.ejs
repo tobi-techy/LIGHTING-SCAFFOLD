@@ -1,13 +1,45 @@
 "use client";
+import { useState } from "react";
 import { useWallet } from "@lazorkit/wallet";
 import { Onboarding } from "@/components/Onboarding";
 import { Swap } from "@/components/Swap";
+import { Recovery } from "@/components/Recovery";
+import { History } from "@/components/History";
+
+type View = "swap" | "recovery" | "history";
 
 export default function Home() {
   const { isConnected } = useWallet();
+  const [view, setView] = useState<View>("swap");
+
+  if (!isConnected) {
+    return (
+      <main<% if (styling === 'tailwind') { %> className="min-h-screen flex items-center justify-center p-4"<% } else { %> style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}<% } %>>
+        <Onboarding />
+      </main>
+    );
+  }
+
   return (
-    <main<% if (styling === 'tailwind') { %> className="min-h-screen flex items-center justify-center p-4"<% } else { %> style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}<% } %>>
-      {isConnected ? <Swap /> : <Onboarding />}
+    <main<% if (styling === 'tailwind') { %> className="min-h-screen flex flex-col items-center justify-center p-4"<% } else { %> style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 16 }}<% } %>>
+      {view === "swap" && (
+        <>
+          <Swap />
+<% if (styling === 'tailwind') { %>
+          <div className="flex gap-4 mt-4">
+            <button onClick={() => setView("history")} className="text-xs text-neutral-500 hover:text-black">History</button>
+            <button onClick={() => setView("recovery")} className="text-xs text-neutral-500 hover:text-black">Recovery</button>
+          </div>
+<% } else { %>
+          <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
+            <button onClick={() => setView("history")} style={{ fontSize: 12, color: '#737373', background: 'none', border: 'none', cursor: 'pointer' }}>History</button>
+            <button onClick={() => setView("recovery")} style={{ fontSize: 12, color: '#737373', background: 'none', border: 'none', cursor: 'pointer' }}>Recovery</button>
+          </div>
+<% } %>
+        </>
+      )}
+      {view === "recovery" && <Recovery onBack={() => setView("swap")} />}
+      {view === "history" && <History onBack={() => setView("swap")} />}
     </main>
   );
 }
