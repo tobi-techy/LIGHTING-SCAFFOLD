@@ -1,4 +1,5 @@
 # create-lightning-scaffold
+<img width="1826" height="1183" alt="Screenshot 2026-01-12 at 22 18 56" src="https://github.com/user-attachments/assets/c34c35d4-1d18-49a4-8024-2d55f774af2e" />
 
 CLI to scaffold Solana apps with LazorKit SDK. Generate React Native (Expo) or Next.js projects with passkey authentication, gasless transactions, and a ready-to-use swap interface.
 
