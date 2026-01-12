@@ -190,14 +190,6 @@ async function runPrompts() {
 import fs2 from "fs-extra";
 import path2 from "path";
 import ejs from "ejs";
-import { spawn } from "child_process";
-function runCommand(cmd, args, cwd) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: "inherit", shell: true });
-    child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`${cmd} failed`)));
-    child.on("error", reject);
-  });
-}
 async function scaffold(config) {
   const targetDir = path2.resolve(process.cwd(), config.name);
   const templatesDir = getTemplatesDir();
@@ -232,70 +224,24 @@ async function scaffold(config) {
     await copyTemplate(path2.join(templatesDir, "components", config.components), path2.join(appDir, "components/ui"), config);
   }
   if (config.backend !== "none") {
-    await copyTemplate(path2.join(templatesDir, "backend", config.backend.replace(/-.*/, "")), path2.join(appDir, "lib/backend"), config);
+    await copyTemplate(path2.join(templatesDir, "backend", config.backend), path2.join(appDir, "lib/backend"), config);
     await copyTemplate(path2.join(templatesDir, "lib"), path2.join(appDir, "lib"), config);
   }
-  await copyAppTemplates(appDir, platform, config);
   await copyTemplate(path2.join(templatesDir, "base"), targetDir, config);
   return targetDir;
 }
 async function scaffoldMobile(cwd, name, config) {
-  await runCommand("npx", ["create-expo-app@latest", name, "--template", "blank-typescript", "--no-install"], cwd);
+  const templatesDir = getTemplatesDir();
+  await copyTemplate(path2.join(templatesDir, "mobile"), path2.join(cwd, name), config);
 }
 async function scaffoldWeb(cwd, name, config) {
-  if (config.webFramework === "vite") {
-    await runCommand("npm", ["create", "vite@latest", name, "--", "--template", "react-ts"], cwd);
-  } else {
-    const tailwindFlag = config.styling === "tailwind" ? "--tailwind" : "--no-tailwind";
-    await runCommand("npx", ["create-next-app@latest", name, "--typescript", tailwindFlag, "--eslint", "--app", "--no-src-dir", "--no-import-alias", "--no-install"], cwd);
-  }
+  const templatesDir = getTemplatesDir();
+  const templateName = config.webFramework === "vite" ? "vite" : "web";
+  await copyTemplate(path2.join(templatesDir, templateName), path2.join(cwd, name), config);
 }
 async function scaffoldBackend(cwd, name, config) {
-  if (config.backend.startsWith("nestjs")) {
-    await runCommand("npx", ["@nestjs/cli", "new", name, "--package-manager", config.packageManager, "--skip-install", "--skip-git"], cwd);
-    const backendDir = path2.join(cwd, name);
-    if (config.backend === "nestjs-postgres") {
-      await addPrismaSetup(backendDir);
-    } else if (config.backend === "nestjs-mongodb") {
-      await addMongooseSetup(backendDir);
-    }
-  } else {
-    const templatesDir = getTemplatesDir();
-    await copyTemplate(path2.join(templatesDir, "backend", config.backend), path2.join(cwd, name), config);
-  }
-}
-async function addPrismaSetup(backendDir) {
-  const pkgPath = path2.join(backendDir, "package.json");
-  const pkg = await fs2.readJson(pkgPath);
-  pkg.dependencies["@prisma/client"] = "^5.10.0";
-  pkg.devDependencies["prisma"] = "^5.10.0";
-  pkg.scripts["db:generate"] = "prisma generate";
-  pkg.scripts["db:migrate"] = "prisma migrate dev";
-  pkg.scripts["db:push"] = "prisma db push";
-  await fs2.writeJson(pkgPath, pkg, { spaces: 2 });
-  await fs2.ensureDir(path2.join(backendDir, "prisma"));
-  await fs2.writeFile(path2.join(backendDir, "prisma/schema.prisma"), `datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-generator client {
-  provider = "prisma-client-js"
-}
-
-model User {
-  id        String   @id @default(cuid())
-  wallet    String   @unique
-  createdAt DateTime @default(now())
-}
-`);
-}
-async function addMongooseSetup(backendDir) {
-  const pkgPath = path2.join(backendDir, "package.json");
-  const pkg = await fs2.readJson(pkgPath);
-  pkg.dependencies["@nestjs/mongoose"] = "^10.0.0";
-  pkg.dependencies["mongoose"] = "^8.2.0";
-  await fs2.writeJson(pkgPath, pkg, { spaces: 2 });
+  const templatesDir = getTemplatesDir();
+  await copyTemplate(path2.join(templatesDir, "backend", config.backend), path2.join(cwd, name), config);
 }
 async function setupMonorepo(targetDir, config) {
   const pkg = {
@@ -384,22 +330,6 @@ async function addEasConfig(appDir, config) {
   };
   await fs2.writeJson(path2.join(appDir, "eas.json"), easConfig, { spaces: 2 });
 }
-async function copyAppTemplates(appDir, platform, config) {
-  const templatesDir = getTemplatesDir();
-  if (platform === "web" && config.webFramework === "vite") {
-    const viteDir = path2.join(templatesDir, "vite");
-    await copyTemplate(path2.join(viteDir, "src"), path2.join(appDir, "src"), config);
-    await copyTemplate(viteDir, appDir, config, ["src"]);
-  } else if (platform === "web") {
-    const webDir = path2.join(templatesDir, "web");
-    await copyTemplate(path2.join(webDir, "app"), path2.join(appDir, "app"), config);
-    await copyTemplate(path2.join(webDir, "components"), path2.join(appDir, "components"), config);
-  } else {
-    const mobileDir = path2.join(templatesDir, "mobile");
-    await copyTemplate(path2.join(mobileDir, "app"), path2.join(appDir, "app"), config);
-    await copyTemplate(path2.join(mobileDir, "components"), path2.join(appDir, "components"), config);
-  }
-}
 async function copyTemplate(src, dest, config, exclude = []) {
   if (!await fs2.pathExists(src)) return;
   await fs2.ensureDir(dest);
@@ -424,19 +354,19 @@ async function copyTemplate(src, dest, config, exclude = []) {
 }
 
 // src/installer.ts
-import { spawn as spawn2 } from "child_process";
+import { spawn } from "child_process";
 function installDependencies(cwd, pm) {
   return new Promise((resolve, reject) => {
     const cmd = pm === "npm" ? "npm" : pm;
     const args = pm === "yarn" ? [] : ["install"];
-    const child = spawn2(cmd, args, { cwd, stdio: "inherit", shell: true });
+    const child = spawn(cmd, args, { cwd, stdio: "inherit", shell: true });
     child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`Install failed with code ${code}`)));
     child.on("error", reject);
   });
 }
 function initGit(cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn2("git", ["init"], { cwd, stdio: "ignore", shell: true });
+    const child = spawn("git", ["init"], { cwd, stdio: "ignore", shell: true });
     child.on("close", (code) => code === 0 ? resolve() : reject(new Error("Git init failed")));
     child.on("error", reject);
   });

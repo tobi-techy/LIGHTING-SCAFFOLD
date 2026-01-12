@@ -42,24 +42,24 @@ function useBalances(walletAddress: string | undefined) {
 }
 <% if (styling !== 'tailwind') { %>
 const styles: Record<string, React.CSSProperties> = {
-  container: { width: '100%', maxWidth: 360 },
+  container: { width: '100%', maxWidth: 360, background: '#0a0a0a', borderRadius: 16, padding: 24, color: '#fafafa' },
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
-  title: { fontSize: 18, fontWeight: 600, margin: 0 },
-  address: { fontSize: 12, color: '#a3a3a3', background: 'none', border: 'none', cursor: 'pointer' },
-  card: { border: '1px solid #e5e5e5', borderRadius: 12, padding: 16 },
-  label: { fontSize: 12, color: '#a3a3a3', marginBottom: 8, display: 'flex', justifyContent: 'space-between' },
+  title: { fontSize: 18, fontWeight: 600, margin: 0, color: '#fafafa' },
+  address: { fontSize: 12, color: '#737373', background: 'none', border: 'none', cursor: 'pointer' },
+  card: { border: '1px solid #262626', borderRadius: 12, padding: 16, background: '#171717' },
+  label: { fontSize: 12, color: '#737373', marginBottom: 8, display: 'flex', justifyContent: 'space-between' },
   inputRow: { display: 'flex', alignItems: 'center', gap: 12 },
-  input: { flex: 1, fontSize: 24, fontWeight: 500, border: 'none', background: 'transparent', width: '100%' },
+  input: { flex: 1, fontSize: 24, fontWeight: 500, border: 'none', background: 'transparent', width: '100%', color: '#fafafa' },
   arrow: { display: 'flex', justifyContent: 'center', margin: '8px 0' },
-  arrowBox: { width: 32, height: 32, border: '1px solid #e5e5e5', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a3a3a3' },
-  button: { marginTop: 16, width: '100%', backgroundColor: '#0a0a0a', color: '#fff', padding: '14px 16px', borderRadius: 12, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
+  arrowBox: { width: 32, height: 32, border: '1px solid #262626', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#737373', background: '#171717' },
+  button: { marginTop: 16, width: '100%', backgroundColor: '#fafafa', color: '#0a0a0a', padding: '14px 16px', borderRadius: 12, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
   buttonDisabled: { opacity: 0.5, cursor: 'not-allowed' },
-  buttonSecondary: { marginTop: 8, width: '100%', backgroundColor: 'transparent', color: '#0a0a0a', padding: '12px 16px', borderRadius: 12, border: '1px solid #e5e5e5', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  buttonSecondary: { marginTop: 8, width: '100%', backgroundColor: 'transparent', color: '#fafafa', padding: '12px 16px', borderRadius: 12, border: '1px solid #262626', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
   result: { marginTop: 12, fontSize: 14, textAlign: 'center' },
-  footer: { marginTop: 16, fontSize: 12, color: '#a3a3a3', textAlign: 'center' },
-  tokenBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f5f5f5', borderRadius: 8, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer' },
-  dropdown: { position: 'absolute', right: 0, marginTop: 4, background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10 },
-  dropdownItem: { display: 'block', width: '100%', padding: '8px 16px', textAlign: 'left', border: 'none', background: 'none', fontSize: 14, cursor: 'pointer' },
+  footer: { marginTop: 16, fontSize: 12, color: '#737373', textAlign: 'center' },
+  tokenBtn: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#262626', borderRadius: 8, border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer', color: '#fafafa' },
+  dropdown: { position: 'absolute', right: 0, marginTop: 4, background: '#171717', border: '1px solid #262626', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10 },
+  dropdownItem: { display: 'block', width: '100%', padding: '8px 16px', textAlign: 'left', border: 'none', background: 'none', fontSize: 14, cursor: 'pointer', color: '#fafafa' },
   quote: { fontSize: 12, color: '#737373', marginTop: 4 },
 };
 <% } %>
@@ -160,58 +160,58 @@ export function Swap() {
 
   return (
 <% if (styling === 'tailwind') { %>
-    <div className="w-full max-w-sm">
+    <div className="w-full max-w-sm bg-neutral-900 rounded-2xl p-6 text-white">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-lg font-semibold">Swap</h1>
-        <button onClick={() => disconnect()} className="text-xs text-neutral-400 hover:text-neutral-600">
+        <button onClick={() => disconnect()} className="text-xs text-neutral-500 hover:text-neutral-300">
           {addr.slice(0, 6)}...{addr.slice(-4)}
         </button>
       </div>
       <div className="space-y-2">
-        <div className="border border-neutral-200 rounded-xl p-4">
+        <div className="border border-neutral-700 rounded-xl p-4 bg-neutral-800">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-neutral-400">From</span>
-            <span className="text-xs text-neutral-400">Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</span>
+            <span className="text-xs text-neutral-500">From</span>
+            <span className="text-xs text-neutral-500">Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</span>
           </div>
           <div className="flex items-center gap-3">
-            <input type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} className="flex-1 text-2xl font-medium bg-transparent w-full focus:outline-none" />
+            <input type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} className="flex-1 text-2xl font-medium bg-transparent w-full focus:outline-none text-white placeholder-neutral-600" />
             <TokenSelect token={fromToken} tokens={TOKENS} onChange={setFromToken} exclude={toToken.symbol} />
           </div>
-          <button onClick={() => setAmount(String(balances[fromToken.symbol] ?? 0))} className="text-xs text-neutral-400 hover:text-black mt-1">Max</button>
+          <button onClick={() => setAmount(String(balances[fromToken.symbol] ?? 0))} className="text-xs text-neutral-500 hover:text-white mt-1">Max</button>
         </div>
         <div className="flex justify-center">
-          <button onClick={switchTokens} className="w-8 h-8 border border-neutral-200 rounded-lg flex items-center justify-center text-neutral-400 hover:bg-neutral-50">↓</button>
+          <button onClick={switchTokens} className="w-8 h-8 border border-neutral-700 rounded-lg flex items-center justify-center text-neutral-500 hover:bg-neutral-800 bg-neutral-800">↓</button>
         </div>
-        <div className="border border-neutral-200 rounded-xl p-4">
+        <div className="border border-neutral-700 rounded-xl p-4 bg-neutral-800">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-neutral-400">To</span>
-            <span className="text-xs text-neutral-400">Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</span>
+            <span className="text-xs text-neutral-500">To</span>
+            <span className="text-xs text-neutral-500">Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="flex-1 text-2xl font-medium text-neutral-300">{outputAmount}</span>
+            <span className="flex-1 text-2xl font-medium text-neutral-500">{outputAmount}</span>
             <TokenSelect token={toToken} tokens={TOKENS} onChange={setToToken} exclude={fromToken.symbol} />
           </div>
-          {quote && <p className="text-xs text-neutral-400 mt-2">via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || "Best route"}</p>}
+          {quote && <p className="text-xs text-neutral-500 mt-2">via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || "Best route"}</p>}
         </div>
       </div>
       <div className="flex items-center justify-between mt-3 text-xs">
-        <span className="text-neutral-400">Slippage</span>
+        <span className="text-neutral-500">Slippage</span>
         <div className="flex gap-1">
           {SLIPPAGE_OPTIONS.map((s) => (
-            <button key={s} onClick={() => setSlippage(s)} className={`px-2 py-1 rounded ${slippage === s ? "bg-black text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"}`}>
+            <button key={s} onClick={() => setSlippage(s)} className={`px-2 py-1 rounded ${slippage === s ? "bg-white text-black" : "bg-neutral-700 text-neutral-300 hover:bg-neutral-600"}`}>
               {s / 100}%
             </button>
           ))}
         </div>
       </div>
-      <button onClick={handleSwap} disabled={loading || !quote} className="mt-4 w-full py-3 bg-black text-white text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50">
+      <button onClick={handleSwap} disabled={loading || !quote} className="mt-4 w-full py-3 bg-white text-black text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50">
         {loading ? "Swapping..." : "Swap"}
       </button>
-      <button onClick={handleSignMessage} disabled={signing} className="mt-2 w-full py-3 bg-transparent text-black text-sm font-medium rounded-xl border border-neutral-200 hover:bg-neutral-50 disabled:opacity-50">
+      <button onClick={handleSignMessage} disabled={signing} className="mt-2 w-full py-3 bg-transparent text-white text-sm font-medium rounded-xl border border-neutral-700 hover:bg-neutral-800 disabled:opacity-50">
         {signing ? "Signing..." : "Sign Message"}
       </button>
-      {result && <p className={`mt-3 text-sm text-center ${result.success ? "text-neutral-500" : "text-red-500"}`}>{result.message}</p>}
-      <p className="mt-4 text-xs text-center text-neutral-400">Gas sponsored · Powered by LazorKit + Jupiter</p>
+      {result && <p className={`mt-3 text-sm text-center ${result.success ? "text-neutral-400" : "text-red-400"}`}>{result.message}</p>}
+      <p className="mt-4 text-xs text-center text-neutral-500">Gas sponsored · Powered by LazorKit + Jupiter</p>
     </div>
 <% } else { %>
     <div style={styles.container}>
@@ -237,10 +237,10 @@ export function Swap() {
         {quote && <p style={styles.quote}>via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || "Best route"}</p>}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
-        <span style={{ color: '#a3a3a3' }}>Slippage</span>
+        <span style={{ color: '#737373' }}>Slippage</span>
         <div style={{ display: 'flex', gap: 4 }}>
           {SLIPPAGE_OPTIONS.map((s) => (
-            <button key={s} onClick={() => setSlippage(s)} style={{ padding: '4px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', background: slippage === s ? '#0a0a0a' : '#f5f5f5', color: slippage === s ? '#fff' : '#525252' }}>
+            <button key={s} onClick={() => setSlippage(s)} style={{ padding: '4px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', background: slippage === s ? '#fafafa' : '#262626', color: slippage === s ? '#0a0a0a' : '#a3a3a3' }}>
               {s / 100}%
             </button>
           ))}
@@ -264,13 +264,13 @@ function TokenSelect({ token, tokens, onChange, exclude }: { token: typeof TOKEN
   return (
     <div style={{ position: 'relative' }}>
 <% if (styling === 'tailwind') { %>
-      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 px-3 py-2 bg-neutral-100 rounded-lg text-sm font-medium">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 px-3 py-2 bg-neutral-700 rounded-lg text-sm font-medium text-white">
         {token.symbol}<span className="text-neutral-400">▼</span>
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 bg-white border border-neutral-200 rounded-lg shadow-lg z-10">
+        <div className="absolute right-0 mt-1 bg-neutral-800 border border-neutral-700 rounded-lg shadow-lg z-10">
           {tokens.filter((t) => t.symbol !== exclude).map((t) => (
-            <button key={t.symbol} onClick={() => { onChange(t); setOpen(false); }} className="block w-full px-4 py-2 text-left text-sm hover:bg-neutral-100">{t.symbol}</button>
+            <button key={t.symbol} onClick={() => { onChange(t); setOpen(false); }} className="block w-full px-4 py-2 text-left text-sm text-white hover:bg-neutral-700">{t.symbol}</button>
           ))}
         </div>
       )}
