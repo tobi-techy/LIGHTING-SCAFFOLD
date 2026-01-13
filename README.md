@@ -4,6 +4,12 @@
 
 CLI to scaffold Solana apps with LazorKit SDK. Generate React Native (Expo) or Next.js projects with passkey authentication, gasless transactions, and a ready-to-use swap interface.
 
+## 🚀 Live Demo
+
+**[Try it live on Devnet →](https://lighting-demo.vercel.app)**
+
+Experience passkey authentication and gasless transactions without installing anything.
+
 ## Quick Start
 
 ```bash
