@@ -24,11 +24,17 @@ export function Recovery({ onBack }: Props) {
   const portalUrl = import.meta.env.VITE_LAZORKIT_PORTAL_URL || "https://portal.lazor.sh";
 
   const handleAddDevice = () => {
-    window.open(`${portalUrl}/recovery/add-device`, "_blank");
+    const url = wallet?.smartWallet 
+      ? `${portalUrl}?wallet=${wallet.smartWallet}&action=add-device`
+      : portalUrl;
+    window.open(url, "_blank");
   };
 
   const handleManageDevices = () => {
-    window.open(`${portalUrl}/recovery/devices`, "_blank");
+    const url = wallet?.smartWallet 
+      ? `${portalUrl}?wallet=${wallet.smartWallet}&action=manage-devices`
+      : portalUrl;
+    window.open(url, "_blank");
   };
 
   const copyAddress = () => {

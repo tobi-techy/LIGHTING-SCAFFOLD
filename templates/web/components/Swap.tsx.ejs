@@ -92,7 +92,7 @@ export function Swap() {
       try {
         const inputAmount = Math.floor(parseFloat(amount) * 10 ** fromToken.decimals);
         const res = await fetch(
-          `${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}`
+          `https://quote-api.jup.ag/v6/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}`
         );
         const data = await res.json();
         if (data.outAmount) setQuote(data);
@@ -113,22 +113,34 @@ export function Swap() {
     setResult(null);
     try {
       // Get swap transaction from Jupiter
-      const swapRes = await fetch(`${JUPITER_API}/swap`, {
+      const swapRes = await fetch(`https://quote-api.jup.ag/v6/swap`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           quoteResponse: quote,
           userPublicKey: smartWalletPubkey.toBase58(),
+          wrapAndUnwrapSol: true,
           dynamicComputeUnitLimit: true,
-          dynamicSlippage: true,
         }),
       });
+      
+      if (!swapRes.ok) {
+        throw new Error(`Jupiter API error: ${swapRes.statusText}`);
+      }
+      
       const { swapTransaction } = await swapRes.json();
       
-      // Decode and sign via LazorKit
-      const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, "base64"));
+      if (!swapTransaction) {
+        throw new Error("No swap transaction returned");
+      }
+      
+      // Decode transaction
+      const txBuf = Buffer.from(swapTransaction, "base64");
+      const tx = VersionedTransaction.deserialize(txBuf);
+      
+      // Sign and send via LazorKit
       const signature = await signAndSendTransaction({
-        instructions: [], // Jupiter provides full tx, we pass empty and let SDK handle
+        transaction: tx,
         transactionOptions: { feeToken: "USDC" },
       });
       
@@ -136,6 +148,7 @@ export function Swap() {
       setAmount("");
       setQuote(null);
     } catch (e) {
+      console.error("Swap error:", e);
       setResult({ success: false, message: e instanceof Error ? e.message : "Swap failed" });
     } finally {
       setLoading(false);
@@ -147,9 +160,11 @@ export function Swap() {
     setResult(null);
     try {
       const message = `Verify wallet ownership\nTimestamp: ${Date.now()}`;
-      const { signature } = await signMessage(message);
+      const encodedMessage = new TextEncoder().encode(message);
+      const { signature } = await signMessage(encodedMessage);
       setResult({ success: true, message: `Signed: ${signature.slice(0, 16)}...` });
     } catch (e) {
+      console.error("Sign error:", e);
       setResult({ success: false, message: e instanceof Error ? e.message : "Sign failed" });
     } finally {
       setSigning(false);

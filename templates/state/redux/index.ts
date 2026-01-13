@@ -1,26 +1,21 @@
 import { configureStore, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { useDispatch, useSelector, TypedUseSelectorHook } from "react-redux";
-import type { LazorWallet } from "../lazorkit";
 
 interface AppState {
-  wallet: LazorWallet | null;
   isLoading: boolean;
 }
 
 const appSlice = createSlice({
   name: "app",
-  initialState: { wallet: null, isLoading: false } as AppState,
+  initialState: { isLoading: false } as AppState,
   reducers: {
-    setWallet: (state, action: PayloadAction<LazorWallet | null>) => {
-      state.wallet = action.payload;
-    },
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.isLoading = action.payload;
     },
   },
 });
 
-export const { setWallet, setLoading } = appSlice.actions;
+export const { setLoading } = appSlice.actions;
 
 export const store = configureStore({ reducer: { app: appSlice.reducer } });
 

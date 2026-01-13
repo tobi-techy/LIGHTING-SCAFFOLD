@@ -113,7 +113,7 @@ export function Swap() {
     const timeout = setTimeout(async () => {
       try {
         const inputAmount = Math.floor(parseFloat(amount) * 10 ** fromToken.decimals);
-        const res = await fetch(`${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}`);
+        const res = await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}`);
         const data = await res.json();
         if (data.outAmount) setQuote(data);
       } catch (e) { console.error('Quote error:', e); }
@@ -128,17 +128,20 @@ export function Swap() {
     setLoading(true);
     setResult(null);
     try {
-      const swapRes = await fetch(`${JUPITER_API}/swap`, {
+      const swapRes = await fetch(`https://quote-api.jup.ag/v6/swap`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quoteResponse: quote, userPublicKey: wallet.smartWallet, dynamicComputeUnitLimit: true, dynamicSlippage: true }),
+        body: JSON.stringify({ quoteResponse: quote, userPublicKey: wallet.smartWallet, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true }),
       });
+      if (!swapRes.ok) throw new Error(`Jupiter API error: ${swapRes.statusText}`);
       const { swapTransaction } = await swapRes.json();
-      const sig = await signAndSendTransaction({ instructions: [], transactionOptions: { feeToken: 'USDC' } }, { redirectUrl });
+      if (!swapTransaction) throw new Error('No swap transaction returned');
+      const sig = await signAndSendTransaction({ transaction: swapTransaction, transactionOptions: { feeToken: 'USDC' } }, { redirectUrl });
       setResult({ success: true, message: `Swapped! ${sig.slice(0, 8)}...` });
       setAmount('');
       setQuote(null);
     } catch (e) {
+      console.error('Swap error:', e);
       setResult({ success: false, message: e instanceof Error ? e.message : 'Swap failed' });
     } finally { setLoading(false); }
   };
@@ -148,9 +151,11 @@ export function Swap() {
     setResult(null);
     try {
       const message = `Verify wallet ownership\nTimestamp: ${Date.now()}`;
-      const signature = await signMessage(message, { redirectUrl });
+      const encodedMessage = new TextEncoder().encode(message);
+      const signature = await signMessage(encodedMessage, { redirectUrl });
       setResult({ success: true, message: `Signed: ${signature.slice(0, 16)}...` });
     } catch (e) {
+      console.error('Sign error:', e);
       setResult({ success: false, message: e instanceof Error ? e.message : 'Sign failed' });
     } finally { setSigning(false); }
   };

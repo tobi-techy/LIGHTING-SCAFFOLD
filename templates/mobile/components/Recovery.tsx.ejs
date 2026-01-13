@@ -33,11 +33,17 @@ export function Recovery({ onBack }: Props) {
   const portalUrl = process.env.EXPO_PUBLIC_LAZORKIT_PORTAL_URL || 'https://portal.lazor.sh';
 
   const handleAddDevice = () => {
-    Linking.openURL(`${portalUrl}/recovery/add-device`);
+    const url = wallet?.smartWallet 
+      ? `${portalUrl}?wallet=${wallet.smartWallet}&action=add-device`
+      : portalUrl;
+    Linking.openURL(url);
   };
 
   const handleManageDevices = () => {
-    Linking.openURL(`${portalUrl}/recovery/devices`);
+    const url = wallet?.smartWallet 
+      ? `${portalUrl}?wallet=${wallet.smartWallet}&action=manage-devices`
+      : portalUrl;
+    Linking.openURL(url);
   };
 
   const copyAddress = async () => {
