@@ -1,16 +1,20 @@
 # create-lightning-scaffold
 
+![npm](https://img.shields.io/npm/dt/create-lightning-scaffold?style=flat&logo=npm&label=downloads)
+
 ![Demo](demo.gif)
 
 > ⚡ **5 minutes from `npx` to first gasless transaction**
 
 CLI to scaffold Solana apps with LazorKit SDK. Generate React Native (Expo) or Next.js projects with passkey authentication, gasless transactions, and a ready-to-use swap interface.
 
-## 🚀 Live Demo
+## 🚀 Live Demos
 
-**[Try it live on Devnet →](https://lighting-demo.vercel.app)**
+**Web Demo:** [Try it live on Devnet →](https://lighting-demo.vercel.app)
 
-Experience passkey authentication and gasless transactions without installing anything.
+**Mobile Demo:** [Download APK](./mobile-demo) or run locally with Expo Go
+
+Experience passkey authentication and gasless transactions on web and mobile.
 
 ## Quick Start
 
