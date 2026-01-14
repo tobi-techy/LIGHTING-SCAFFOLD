@@ -1,0 +1,78 @@
+"use client";
+import { useState } from "react";
+import { useWallet } from "@lazorkit/wallet";
+
+interface Props {
+  onBack: () => void;
+}
+
+export function Recovery({ onBack }: Props) {
+  const { wallet } = useWallet();
+  const [copied, setCopied] = useState(false);
+  const portalUrl = process.env.NEXT_PUBLIC_LAZORKIT_PORTAL_URL || "https://portal.lazor.sh";
+
+  const handleAddDevice = () => {
+    // Open portal with wallet context
+    const url = wallet?.smartWallet 
+      ? `${portalUrl}?wallet=${wallet.smartWallet}&action=add-device`
+      : portalUrl;
+    window.open(url, "_blank");
+  };
+
+  const handleManageDevices = () => {
+    // Open portal with wallet context
+    const url = wallet?.smartWallet 
+      ? `${portalUrl}?wallet=${wallet.smartWallet}&action=manage-devices`
+      : portalUrl;
+    window.open(url, "_blank");
+  };
+
+  const copyAddress = () => {
+    if (wallet?.smartWallet) {
+      navigator.clipboard.writeText(wallet.smartWallet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+
+    <div className="w-full max-w-sm bg-neutral-900 rounded-2xl p-6 text-white">
+      <h1 className="text-lg font-semibold">Recovery & Backup</h1>
+      <p className="mt-2 text-sm text-neutral-500">
+        Add backup passkeys from other devices to ensure you never lose access.
+      </p>
+      <div className="mt-4 border border-neutral-700 rounded-xl p-4 bg-neutral-800">
+        <h3 className="text-sm font-medium">Add Backup Device</h3>
+        <p className="mt-1 text-xs text-neutral-500">
+          Register a passkey from another phone, tablet, or computer.
+        </p>
+        <button onClick={handleAddDevice} className="mt-3 w-full py-3 bg-white text-black text-sm font-medium rounded-lg hover:opacity-90">
+          Add Device
+        </button>
+      </div>
+      <div className="mt-3 border border-neutral-700 rounded-xl p-4 bg-neutral-800">
+        <h3 className="text-sm font-medium">Manage Devices</h3>
+        <p className="mt-1 text-xs text-neutral-500">
+          View and remove registered passkeys.
+        </p>
+        <button onClick={handleManageDevices} className="mt-3 w-full py-3 bg-transparent text-white text-sm font-medium rounded-lg border border-neutral-700 hover:bg-neutral-700">
+          View Devices
+        </button>
+      </div>
+      <div className="mt-4 p-3 bg-neutral-800 rounded-lg">
+        <p className="text-xs text-neutral-400">
+          <strong>Wallet:</strong>{" "}
+          <button onClick={copyAddress} className="font-mono hover:text-white">
+            {wallet?.smartWallet?.slice(0, 8)}...{wallet?.smartWallet?.slice(-8)}
+          </button>
+          {copied && <span className="ml-2 text-green-400">Copied!</span>}
+        </p>
+      </div>
+      <button onClick={onBack} className="mt-4 text-sm text-neutral-500 hover:text-white">
+        ← Back
+      </button>
+    </div>
+
+  );
+}

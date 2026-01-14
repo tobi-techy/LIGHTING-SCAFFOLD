@@ -1,0 +1,276 @@
+"use client";
+import { useState, useEffect } from "react";
+import { useWallet } from "@lazorkit/wallet";
+import { Connection, PublicKey } from "@solana/web3.js";
+
+const TOKENS = [
+  { symbol: "SOL", mint: "So11111111111111111111111111111111111111112", decimals: 9 },
+  { symbol: "USDC", mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 },
+  { symbol: "USDT", mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6 },
+  { symbol: "BONK", mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", decimals: 5 },
+  { symbol: "JUP", mint: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", decimals: 6 },
+];
+
+const SLIPPAGE_OPTIONS = [50, 100, 300]; // 0.5%, 1%, 3% in bps
+
+const JUPITER_API = "https://api.jup.ag/swap/v1";
+const JUP_API_KEY = process.env.NEXT_PUBLIC_JUPITER_API_KEY || "";
+
+function useBalances(walletAddress: string | undefined) {
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!walletAddress) return;
+    const rpc = process.env.NEXT_PUBLIC_SOLANA_RPC || "https://api.devnet.solana.com";
+    const conn = new Connection(rpc);
+    const pk = new PublicKey(walletAddress);
+    
+    // Fetch SOL balance
+    conn.getBalance(pk).then((bal) => setBalances((b) => ({ ...b, SOL: bal / 1e9 }))).catch(() => {});
+    
+    // Fetch token balances
+    conn.getParsedTokenAccountsByOwner(pk, { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") })
+      .then((res) => {
+        const tokenBals: Record<string, number> = {};
+        res.value.forEach((acc) => {
+          const info = acc.account.data.parsed.info;
+          const token = TOKENS.find((t) => t.mint === info.mint);
+          if (token) tokenBals[token.symbol] = info.tokenAmount.uiAmount || 0;
+        });
+        setBalances((b) => ({ ...b, ...tokenBals }));
+      }).catch(() => {});
+  }, [walletAddress]);
+  return balances;
+}
+
+export function Swap() {
+  const { disconnect, wallet, smartWalletPubkey, signAndSendTransaction, signMessage } = useWallet();
+  const balances = useBalances(wallet?.smartWallet);
+  const [fromToken, setFromToken] = useState(TOKENS[0]);
+  const [toToken, setToToken] = useState(TOKENS[1]);
+  const [amount, setAmount] = useState("");
+  const [slippage, setSlippage] = useState(SLIPPAGE_OPTIONS[0]);
+  const [quote, setQuote] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const switchTokens = () => {
+    setFromToken(toToken);
+    setToToken(fromToken);
+    setAmount("");
+    setQuote(null);
+  };
+
+  // Fetch quote from Jupiter
+  useEffect(() => {
+    if (!amount || parseFloat(amount) <= 0) {
+      setQuote(null);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      try {
+        const inputAmount = Math.floor(parseFloat(amount) * 10 ** fromToken.decimals);
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (JUP_API_KEY) headers["x-api-key"] = JUP_API_KEY;
+        
+        const res = await fetch(
+          `${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}&restrictIntermediateTokens=true`,
+          { headers }
+        );
+        const data = await res.json();
+        if (data.outAmount) setQuote(data);
+        else setQuote(null);
+      } catch (e) {
+        console.error("Quote error:", e);
+        setQuote(null);
+      }
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [amount, fromToken, toToken, slippage]);
+
+  const outputAmount = quote
+    ? (parseInt(quote.outAmount) / 10 ** toToken.decimals).toFixed(toToken.decimals === 6 ? 2 : 4)
+    : "0.00";
+
+  const handleSwap = async () => {
+    if (!smartWalletPubkey || !quote) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      // Get swap instructions from Jupiter (not serialized tx)
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (JUP_API_KEY) headers["x-api-key"] = JUP_API_KEY;
+      
+      const swapRes = await fetch(`${JUPITER_API}/swap-instructions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey: smartWalletPubkey.toBase58(),
+          wrapAndUnwrapSol: true,
+          dynamicComputeUnitLimit: true,
+        }),
+      });
+      
+      if (!swapRes.ok) {
+        const err = await swapRes.text();
+        throw new Error(`Jupiter API error: ${err}`);
+      }
+      
+      const { 
+        setupInstructions = [], 
+        swapInstruction, 
+        cleanupInstruction,
+        addressLookupTableAddresses = []
+      } = await swapRes.json();
+      
+      if (!swapInstruction) {
+        throw new Error("No swap instruction returned");
+      }
+
+      // Convert Jupiter instruction format to TransactionInstruction
+      const toInstruction = (ix: any) => ({
+        programId: new PublicKey(ix.programId),
+        keys: ix.accounts.map((acc: any) => ({
+          pubkey: new PublicKey(acc.pubkey),
+          isSigner: acc.isSigner,
+          isWritable: acc.isWritable,
+        })),
+        data: Buffer.from(ix.data, "base64"),
+      });
+
+      const instructions = [
+        ...setupInstructions.map(toInstruction),
+        toInstruction(swapInstruction),
+        ...(cleanupInstruction ? [toInstruction(cleanupInstruction)] : []),
+      ];
+
+      // Fetch address lookup tables if needed
+      let addressLookupTableAccounts: any[] = [];
+      if (addressLookupTableAddresses.length > 0) {
+        const rpc = process.env.NEXT_PUBLIC_SOLANA_RPC || "https://api.devnet.solana.com";
+        const conn = new Connection(rpc);
+        const altAccounts = await Promise.all(
+          addressLookupTableAddresses.map(async (addr: string) => {
+            const res = await conn.getAddressLookupTable(new PublicKey(addr));
+            return res.value;
+          })
+        );
+        addressLookupTableAccounts = altAccounts.filter(Boolean);
+      }
+      
+      // Sign and send via LazorKit (expects instructions array)
+      const signature = await signAndSendTransaction({
+        instructions,
+        transactionOptions: { 
+          feeToken: "USDC",
+          addressLookupTableAccounts,
+        },
+      });
+      
+      setResult({ success: true, message: `Swapped! ${signature.slice(0, 8)}...` });
+      setAmount("");
+      setQuote(null);
+    } catch (e) {
+      console.error("Swap error:", e);
+      setResult({ success: false, message: e instanceof Error ? e.message : "Swap failed" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignMessage = async () => {
+    setSigning(true);
+    setResult(null);
+    try {
+      const message = `Verify wallet ownership\nTimestamp: ${Date.now()}`;
+      const { signature } = await signMessage(message);
+      setResult({ success: true, message: `Signed: ${signature.slice(0, 16)}...` });
+    } catch (e) {
+      console.error("Sign error:", e);
+      setResult({ success: false, message: e instanceof Error ? e.message : "Sign failed" });
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  const addr = wallet?.smartWallet || "";
+
+  return (
+
+    <div className="w-full max-w-sm bg-neutral-900 rounded-2xl p-6 text-white">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-lg font-semibold">Swap</h1>
+        <button onClick={() => disconnect()} className="text-xs text-neutral-500 hover:text-neutral-300">
+          {addr.slice(0, 6)}...{addr.slice(-4)}
+        </button>
+      </div>
+      <div className="space-y-2">
+        <div className="border border-neutral-700 rounded-xl p-4 bg-neutral-800">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-neutral-500">From</span>
+            <span className="text-xs text-neutral-500">Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <input type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} className="flex-1 text-2xl font-medium bg-transparent w-full focus:outline-none text-white placeholder-neutral-600" />
+            <TokenSelect token={fromToken} tokens={TOKENS} onChange={setFromToken} exclude={toToken.symbol} />
+          </div>
+          <button onClick={() => setAmount(String(balances[fromToken.symbol] ?? 0))} className="text-xs text-neutral-500 hover:text-white mt-1">Max</button>
+        </div>
+        <div className="flex justify-center">
+          <button onClick={switchTokens} className="w-8 h-8 border border-neutral-700 rounded-lg flex items-center justify-center text-neutral-500 hover:bg-neutral-800 bg-neutral-800">↓</button>
+        </div>
+        <div className="border border-neutral-700 rounded-xl p-4 bg-neutral-800">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-neutral-500">To</span>
+            <span className="text-xs text-neutral-500">Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="flex-1 text-2xl font-medium text-neutral-500">{outputAmount}</span>
+            <TokenSelect token={toToken} tokens={TOKENS} onChange={setToToken} exclude={fromToken.symbol} />
+          </div>
+          {quote && <p className="text-xs text-neutral-500 mt-2">via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || "Best route"}</p>}
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-3 text-xs">
+        <span className="text-neutral-500">Slippage</span>
+        <div className="flex gap-1">
+          {SLIPPAGE_OPTIONS.map((s) => (
+            <button key={s} onClick={() => setSlippage(s)} className={`px-2 py-1 rounded ${slippage === s ? "bg-white text-black" : "bg-neutral-700 text-neutral-300 hover:bg-neutral-600"}`}>
+              {s / 100}%
+            </button>
+          ))}
+        </div>
+      </div>
+      <button onClick={handleSwap} disabled={loading || !quote} className="mt-4 w-full py-3 bg-white text-black text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50">
+        {loading ? "Swapping..." : "Swap"}
+      </button>
+      <button onClick={handleSignMessage} disabled={signing} className="mt-2 w-full py-3 bg-transparent text-white text-sm font-medium rounded-xl border border-neutral-700 hover:bg-neutral-800 disabled:opacity-50">
+        {signing ? "Signing..." : "Sign Message"}
+      </button>
+      {result && <p className={`mt-3 text-sm text-center ${result.success ? "text-neutral-400" : "text-red-400"}`}>{result.message}</p>}
+      <p className="mt-4 text-xs text-center text-neutral-500">Gas sponsored · Powered by LazorKit + Jupiter</p>
+    </div>
+
+  )
+}
+
+function TokenSelect({ token, tokens, onChange, exclude }: { token: typeof TOKENS[0]; tokens: typeof TOKENS; onChange: (t: typeof TOKENS[0]) => void; exclude: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 px-3 py-2 bg-neutral-700 rounded-lg text-sm font-medium text-white">
+        {token.symbol}<span className="text-neutral-400">▼</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 bg-neutral-800 border border-neutral-700 rounded-lg shadow-lg z-10">
+          {tokens.filter((t) => t.symbol !== exclude).map((t) => (
+            <button key={t.symbol} onClick={() => { onChange(t); setOpen(false); }} className="block w-full px-4 py-2 text-left text-sm text-white hover:bg-neutral-700">{t.symbol}</button>
+          ))}
+        </div>
+      )}
+
+    </div>
+  );
+}

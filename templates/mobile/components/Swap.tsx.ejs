@@ -15,6 +15,7 @@ const TOKENS = [
 const SLIPPAGE_OPTIONS = [50, 100, 300];
 
 const JUPITER_API = 'https://api.jup.ag/swap/v1';
+const JUP_API_KEY = process.env.EXPO_PUBLIC_JUPITER_API_KEY || '';
 
 function useBalances(walletAddress: string | undefined) {
   const [balances, setBalances] = useState<Record<string, number>>({});
@@ -23,9 +24,7 @@ function useBalances(walletAddress: string | undefined) {
     const rpc = process.env.EXPO_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
     const conn = new Connection(rpc);
     const pk = new PublicKey(walletAddress);
-    
     conn.getBalance(pk).then((bal) => setBalances((b) => ({ ...b, SOL: bal / 1e9 }))).catch(() => {});
-    
     conn.getParsedTokenAccountsByOwner(pk, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') })
       .then((res) => {
         const tokenBals: Record<string, number> = {};
@@ -39,13 +38,6 @@ function useBalances(walletAddress: string | undefined) {
   }, [walletAddress]);
   return balances;
 }
-
-const TOKENS = [
-  { symbol: 'SOL', mint: 'So11111111111111111111111111111111111111112', decimals: 9 },
-  { symbol: 'USDC', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
-];
-
-const JUPITER_API = 'https://api.jup.ag/swap/v1';
 <% if (styling !== 'nativewind') { %>
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff', padding: 24, paddingTop: 60 },
@@ -101,22 +93,20 @@ export function Swap() {
   const [showPicker, setShowPicker] = useState<'from' | 'to' | null>(null);
   const redirectUrl = Linking.createURL('/');
 
-  const switchTokens = () => {
-    setFromToken(toToken);
-    setToToken(fromToken);
-    setAmount('');
-    setQuote(null);
-  };
+  const switchTokens = () => { setFromToken(toToken); setToToken(fromToken); setAmount(''); setQuote(null); };
 
   useEffect(() => {
     if (!amount || parseFloat(amount) <= 0) { setQuote(null); return; }
     const timeout = setTimeout(async () => {
       try {
         const inputAmount = Math.floor(parseFloat(amount) * 10 ** fromToken.decimals);
-        const res = await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}`);
+        const headers: Record<string, string> = {};
+        if (JUP_API_KEY) headers['x-api-key'] = JUP_API_KEY;
+        const res = await fetch(`${JUPITER_API}/quote?inputMint=${fromToken.mint}&outputMint=${toToken.mint}&amount=${inputAmount}&slippageBps=${slippage}&restrictIntermediateTokens=true`, { headers });
         const data = await res.json();
         if (data.outAmount) setQuote(data);
-      } catch (e) { console.error('Quote error:', e); }
+        else setQuote(null);
+      } catch (e) { console.error('Quote error:', e); setQuote(null); }
     }, 500);
     return () => clearTimeout(timeout);
   }, [amount, fromToken, toToken, slippage]);
@@ -125,39 +115,48 @@ export function Swap() {
 
   const handleSwap = async () => {
     if (!wallet?.smartWallet || !quote) return;
-    setLoading(true);
-    setResult(null);
+    setLoading(true); setResult(null);
     try {
-      const swapRes = await fetch(`https://quote-api.jup.ag/v6/swap`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (JUP_API_KEY) headers['x-api-key'] = JUP_API_KEY;
+      const swapRes = await fetch(`${JUPITER_API}/swap-instructions`, {
+        method: 'POST', headers,
         body: JSON.stringify({ quoteResponse: quote, userPublicKey: wallet.smartWallet, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true }),
       });
-      if (!swapRes.ok) throw new Error(`Jupiter API error: ${swapRes.statusText}`);
-      const { swapTransaction } = await swapRes.json();
-      if (!swapTransaction) throw new Error('No swap transaction returned');
-      const sig = await signAndSendTransaction({ transaction: swapTransaction, transactionOptions: { feeToken: 'USDC' } }, { redirectUrl });
+      if (!swapRes.ok) throw new Error(`Jupiter API error: ${await swapRes.text()}`);
+      const { setupInstructions = [], swapInstruction, cleanupInstruction, addressLookupTableAddresses = [] } = await swapRes.json();
+      if (!swapInstruction) throw new Error('No swap instruction returned');
+
+      const toInstruction = (ix: any) => ({
+        programId: new PublicKey(ix.programId),
+        keys: ix.accounts.map((acc: any) => ({ pubkey: new PublicKey(acc.pubkey), isSigner: acc.isSigner, isWritable: acc.isWritable })),
+        data: Buffer.from(ix.data, 'base64'),
+      });
+      const instructions = [...setupInstructions.map(toInstruction), toInstruction(swapInstruction), ...(cleanupInstruction ? [toInstruction(cleanupInstruction)] : [])];
+
+      let addressLookupTableAccounts: any[] = [];
+      if (addressLookupTableAddresses.length > 0) {
+        const rpc = process.env.EXPO_PUBLIC_SOLANA_RPC || 'https://api.devnet.solana.com';
+        const conn = new Connection(rpc);
+        const alts = await Promise.all(addressLookupTableAddresses.map(async (addr: string) => (await conn.getAddressLookupTable(new PublicKey(addr))).value));
+        addressLookupTableAccounts = alts.filter(Boolean);
+      }
+
+      const sig = await signAndSendTransaction({ instructions, transactionOptions: { feeToken: 'USDC', addressLookupTableAccounts } }, { redirectUrl });
       setResult({ success: true, message: `Swapped! ${sig.slice(0, 8)}...` });
-      setAmount('');
-      setQuote(null);
-    } catch (e) {
-      console.error('Swap error:', e);
-      setResult({ success: false, message: e instanceof Error ? e.message : 'Swap failed' });
-    } finally { setLoading(false); }
+      setAmount(''); setQuote(null);
+    } catch (e) { console.error('Swap error:', e); setResult({ success: false, message: e instanceof Error ? e.message : 'Swap failed' }); }
+    finally { setLoading(false); }
   };
 
   const handleSignMessage = async () => {
-    setSigning(true);
-    setResult(null);
+    setSigning(true); setResult(null);
     try {
       const message = `Verify wallet ownership\nTimestamp: ${Date.now()}`;
-      const encodedMessage = new TextEncoder().encode(message);
-      const signature = await signMessage(encodedMessage, { redirectUrl });
+      const signature = await signMessage(message, { redirectUrl });
       setResult({ success: true, message: `Signed: ${signature.slice(0, 16)}...` });
-    } catch (e) {
-      console.error('Sign error:', e);
-      setResult({ success: false, message: e instanceof Error ? e.message : 'Sign failed' });
-    } finally { setSigning(false); }
+    } catch (e) { console.error('Sign error:', e); setResult({ success: false, message: e instanceof Error ? e.message : 'Sign failed' }); }
+    finally { setSigning(false); }
   };
 
   const addr = wallet?.smartWallet || '';
@@ -166,152 +165,54 @@ export function Swap() {
 <% if (styling === 'nativewind') { %>
     <View className="flex-1 bg-white p-6 pt-16">
       <View className="bg-neutral-900 rounded-2xl p-5">
-        <View className="flex-row items-center justify-between mb-6">
-          <Text className="text-lg font-semibold text-white">Swap</Text>
-          <TouchableOpacity onPress={() => disconnect()}>
-            <Text className="text-xs text-neutral-500">{addr.slice(0, 6)}...{addr.slice(-4)}</Text>
-          </TouchableOpacity>
-        </View>
-
+        <View className="flex-row items-center justify-between mb-6"><Text className="text-lg font-semibold text-white">Swap</Text><TouchableOpacity onPress={() => disconnect()}><Text className="text-xs text-neutral-500">{addr.slice(0, 6)}...{addr.slice(-4)}</Text></TouchableOpacity></View>
         <View className="bg-neutral-800 border border-neutral-700 rounded-xl p-4">
-          <View className="flex-row justify-between mb-2">
-            <Text className="text-xs text-neutral-500">From</Text>
-            <Text className="text-xs text-neutral-500">Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</Text>
-          </View>
-          <View className="flex-row items-center">
-            <TextInput className="flex-1 text-2xl font-medium text-white" placeholder="0.00" placeholderTextColor="#737373" value={amount} onChangeText={setAmount} keyboardType="numeric" />
-            <TouchableOpacity className="flex-row items-center bg-neutral-700 px-3 py-2 rounded-lg" onPress={() => setShowPicker('from')}>
-              <Text className="text-sm font-medium text-white mr-1">{fromToken.symbol}</Text><Text className="text-xs text-neutral-400">▼</Text>
-            </TouchableOpacity>
-          </View>
+          <View className="flex-row justify-between mb-2"><Text className="text-xs text-neutral-500">From</Text><Text className="text-xs text-neutral-500">Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</Text></View>
+          <View className="flex-row items-center"><TextInput className="flex-1 text-2xl font-medium text-white" placeholder="0.00" placeholderTextColor="#737373" value={amount} onChangeText={setAmount} keyboardType="numeric" /><TouchableOpacity className="flex-row items-center bg-neutral-700 px-3 py-2 rounded-lg" onPress={() => setShowPicker('from')}><Text className="text-sm font-medium text-white mr-1">{fromToken.symbol}</Text><Text className="text-xs text-neutral-400">▼</Text></TouchableOpacity></View>
           <TouchableOpacity onPress={() => setAmount(String(balances[fromToken.symbol] ?? 0))}><Text className="text-xs text-neutral-500 mt-1">Max</Text></TouchableOpacity>
         </View>
-
-        <View className="items-center my-2">
-          <TouchableOpacity onPress={switchTokens} className="w-8 h-8 bg-neutral-800 border border-neutral-700 rounded-lg items-center justify-center"><Text className="text-neutral-500">↓</Text></TouchableOpacity>
-        </View>
-
+        <View className="items-center my-2"><TouchableOpacity onPress={switchTokens} className="w-8 h-8 bg-neutral-800 border border-neutral-700 rounded-lg items-center justify-center"><Text className="text-neutral-500">↓</Text></TouchableOpacity></View>
         <View className="bg-neutral-800 border border-neutral-700 rounded-xl p-4">
-          <View className="flex-row justify-between mb-2">
-            <Text className="text-xs text-neutral-500">To</Text>
-            <Text className="text-xs text-neutral-500">Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</Text>
-          </View>
-          <View className="flex-row items-center">
-            <Text className="flex-1 text-2xl font-medium text-neutral-500">{outputAmount}</Text>
-            <TouchableOpacity className="flex-row items-center bg-neutral-700 px-3 py-2 rounded-lg" onPress={() => setShowPicker('to')}>
-              <Text className="text-sm font-medium text-white mr-1">{toToken.symbol}</Text><Text className="text-xs text-neutral-400">▼</Text>
-            </TouchableOpacity>
-          </View>
+          <View className="flex-row justify-between mb-2"><Text className="text-xs text-neutral-500">To</Text><Text className="text-xs text-neutral-500">Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</Text></View>
+          <View className="flex-row items-center"><Text className="flex-1 text-2xl font-medium text-neutral-500">{outputAmount}</Text><TouchableOpacity className="flex-row items-center bg-neutral-700 px-3 py-2 rounded-lg" onPress={() => setShowPicker('to')}><Text className="text-sm font-medium text-white mr-1">{toToken.symbol}</Text><Text className="text-xs text-neutral-400">▼</Text></TouchableOpacity></View>
           {quote && <Text className="text-xs text-neutral-500 mt-2">via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || 'Best route'}</Text>}
         </View>
-
-        <View className="flex-row items-center justify-between mt-3">
-          <Text className="text-xs text-neutral-500">Slippage</Text>
-          <View className="flex-row gap-1">
-            {SLIPPAGE_OPTIONS.map((s) => (
-              <TouchableOpacity key={s} onPress={() => setSlippage(s)} className={`px-2 py-1 rounded ${slippage === s ? 'bg-white' : 'bg-neutral-700'}`}>
-                <Text className={`text-xs ${slippage === s ? 'text-black' : 'text-neutral-400'}`}>{s / 100}%</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <TouchableOpacity className={`mt-4 bg-white py-3.5 rounded-xl items-center ${loading || !quote ? 'opacity-50' : ''}`} onPress={handleSwap} disabled={loading || !quote}>
-          {loading ? <ActivityIndicator color="#0a0a0a" size="small" /> : <Text className="text-black text-sm font-medium">Swap</Text>}
-        </TouchableOpacity>
-
-        <TouchableOpacity className={`mt-2 border border-neutral-700 py-3 rounded-xl items-center ${signing ? 'opacity-50' : ''}`} onPress={handleSignMessage} disabled={signing}>
-          {signing ? <ActivityIndicator color="#fafafa" size="small" /> : <Text className="text-white text-sm font-medium">Sign Message</Text>}
-        </TouchableOpacity>
-
+        <View className="flex-row items-center justify-between mt-3"><Text className="text-xs text-neutral-500">Slippage</Text><View className="flex-row gap-1">{SLIPPAGE_OPTIONS.map((s) => (<TouchableOpacity key={s} onPress={() => setSlippage(s)} className={`px-2 py-1 rounded ${slippage === s ? 'bg-white' : 'bg-neutral-700'}`}><Text className={`text-xs ${slippage === s ? 'text-black' : 'text-neutral-400'}`}>{s / 100}%</Text></TouchableOpacity>))}</View></View>
+        <TouchableOpacity className={`mt-4 bg-white py-3.5 rounded-xl items-center ${loading || !quote ? 'opacity-50' : ''}`} onPress={handleSwap} disabled={loading || !quote}>{loading ? <ActivityIndicator color="#0a0a0a" size="small" /> : <Text className="text-black text-sm font-medium">Swap</Text>}</TouchableOpacity>
+        <TouchableOpacity className={`mt-2 border border-neutral-700 py-3 rounded-xl items-center ${signing ? 'opacity-50' : ''}`} onPress={handleSignMessage} disabled={signing}>{signing ? <ActivityIndicator color="#fafafa" size="small" /> : <Text className="text-white text-sm font-medium">Sign Message</Text>}</TouchableOpacity>
         {result && <Text className={`mt-3 text-sm text-center ${result.success ? 'text-neutral-400' : 'text-red-400'}`}>{result.message}</Text>}
         <Text className="mt-4 text-xs text-center text-neutral-500">Gas sponsored · Powered by LazorKit + Jupiter</Text>
       </View>
-
       <Modal visible={!!showPicker} transparent animationType="slide" onRequestClose={() => setShowPicker(null)}>
         <TouchableOpacity className="flex-1 justify-end bg-black/50" activeOpacity={1} onPress={() => setShowPicker(null)}>
-          <View className="bg-neutral-800 rounded-t-2xl p-4 pb-8">
-            <Text className="text-base font-semibold text-center mb-4 text-white">Select Token</Text>
-            {TOKENS.filter(t => t.symbol !== (showPicker === 'from' ? toToken.symbol : fromToken.symbol)).map(t => (
-              <TouchableOpacity key={t.symbol} className="py-3.5 border-b border-neutral-700" onPress={() => { showPicker === 'from' ? setFromToken(t) : setToToken(t); setShowPicker(null); }}>
-                <Text className="text-base text-white">{t.symbol}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <View className="bg-neutral-800 rounded-t-2xl p-4 pb-8"><Text className="text-base font-semibold text-center mb-4 text-white">Select Token</Text>{TOKENS.filter(t => t.symbol !== (showPicker === 'from' ? toToken.symbol : fromToken.symbol)).map(t => (<TouchableOpacity key={t.symbol} className="py-3.5 border-b border-neutral-700" onPress={() => { showPicker === 'from' ? setFromToken(t) : setToToken(t); setShowPicker(null); }}><Text className="text-base text-white">{t.symbol}</Text></TouchableOpacity>))}</View>
         </TouchableOpacity>
       </Modal>
     </View>
 <% } else { %>
     <View style={styles.container}>
       <View style={styles.card}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Swap</Text>
-          <TouchableOpacity onPress={() => disconnect()}><Text style={styles.address}>{addr.slice(0, 6)}...{addr.slice(-4)}</Text></TouchableOpacity>
-        </View>
-
+        <View style={styles.header}><Text style={styles.title}>Swap</Text><TouchableOpacity onPress={() => disconnect()}><Text style={styles.address}>{addr.slice(0, 6)}...{addr.slice(-4)}</Text></TouchableOpacity></View>
         <View style={styles.inputCard}>
-          <View style={styles.labelRow}>
-            <Text style={styles.label}>From</Text>
-            <Text style={styles.label}>Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</Text>
-          </View>
-          <View style={styles.inputRow}>
-            <TextInput style={styles.input} placeholder="0.00" placeholderTextColor="#737373" value={amount} onChangeText={setAmount} keyboardType="numeric" />
-            <TouchableOpacity style={styles.tokenBtn} onPress={() => setShowPicker('from')}>
-              <Text style={styles.tokenText}>{fromToken.symbol}</Text><Text style={styles.tokenArrow}>▼</Text>
-            </TouchableOpacity>
-          </View>
+          <View style={styles.labelRow}><Text style={styles.label}>From</Text><Text style={styles.label}>Balance: {(balances[fromToken.symbol] ?? 0).toFixed(4)}</Text></View>
+          <View style={styles.inputRow}><TextInput style={styles.input} placeholder="0.00" placeholderTextColor="#737373" value={amount} onChangeText={setAmount} keyboardType="numeric" /><TouchableOpacity style={styles.tokenBtn} onPress={() => setShowPicker('from')}><Text style={styles.tokenText}>{fromToken.symbol}</Text><Text style={styles.tokenArrow}>▼</Text></TouchableOpacity></View>
           <TouchableOpacity onPress={() => setAmount(String(balances[fromToken.symbol] ?? 0))}><Text style={styles.switchText}>Max</Text></TouchableOpacity>
         </View>
-
         <View style={styles.arrow}><TouchableOpacity onPress={switchTokens} style={styles.arrowBox}><Text style={styles.arrowText}>↓</Text></TouchableOpacity></View>
-
         <View style={styles.inputCard}>
-          <View style={styles.labelRow}>
-            <Text style={styles.label}>To</Text>
-            <Text style={styles.label}>Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</Text>
-          </View>
-          <View style={styles.inputRow}>
-            <Text style={styles.outputText}>{outputAmount}</Text>
-            <TouchableOpacity style={styles.tokenBtn} onPress={() => setShowPicker('to')}>
-              <Text style={styles.tokenText}>{toToken.symbol}</Text><Text style={styles.tokenArrow}>▼</Text>
-            </TouchableOpacity>
-          </View>
+          <View style={styles.labelRow}><Text style={styles.label}>To</Text><Text style={styles.label}>Balance: {(balances[toToken.symbol] ?? 0).toFixed(4)}</Text></View>
+          <View style={styles.inputRow}><Text style={styles.outputText}>{outputAmount}</Text><TouchableOpacity style={styles.tokenBtn} onPress={() => setShowPicker('to')}><Text style={styles.tokenText}>{toToken.symbol}</Text><Text style={styles.tokenArrow}>▼</Text></TouchableOpacity></View>
           {quote && <Text style={styles.quote}>via Jupiter · {quote.routePlan?.[0]?.swapInfo?.label || 'Best route'}</Text>}
         </View>
-
-        <View style={styles.slippageRow}>
-          <Text style={styles.slippageLabel}>Slippage</Text>
-          <View style={{ flexDirection: 'row', gap: 4 }}>
-            {SLIPPAGE_OPTIONS.map((s) => (
-              <TouchableOpacity key={s} onPress={() => setSlippage(s)} style={[styles.slippageBtn, slippage === s && styles.slippageBtnActive]}>
-                <Text style={[styles.slippageBtnText, slippage === s && styles.slippageBtnTextActive]}>{s / 100}%</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <TouchableOpacity style={[styles.button, (loading || !quote) && styles.buttonDisabled]} onPress={handleSwap} disabled={loading || !quote}>
-          {loading ? <ActivityIndicator color="#0a0a0a" size="small" /> : <Text style={styles.buttonText}>Swap</Text>}
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.buttonSecondary, signing && styles.buttonDisabled]} onPress={handleSignMessage} disabled={signing}>
-          {signing ? <ActivityIndicator color="#fafafa" size="small" /> : <Text style={styles.buttonTextSecondary}>Sign Message</Text>}
-        </TouchableOpacity>
-
+        <View style={styles.slippageRow}><Text style={styles.slippageLabel}>Slippage</Text><View style={{ flexDirection: 'row', gap: 4 }}>{SLIPPAGE_OPTIONS.map((s) => (<TouchableOpacity key={s} onPress={() => setSlippage(s)} style={[styles.slippageBtn, slippage === s && styles.slippageBtnActive]}><Text style={[styles.slippageBtnText, slippage === s && styles.slippageBtnTextActive]}>{s / 100}%</Text></TouchableOpacity>))}</View></View>
+        <TouchableOpacity style={[styles.button, (loading || !quote) && styles.buttonDisabled]} onPress={handleSwap} disabled={loading || !quote}>{loading ? <ActivityIndicator color="#0a0a0a" size="small" /> : <Text style={styles.buttonText}>Swap</Text>}</TouchableOpacity>
+        <TouchableOpacity style={[styles.buttonSecondary, signing && styles.buttonDisabled]} onPress={handleSignMessage} disabled={signing}>{signing ? <ActivityIndicator color="#fafafa" size="small" /> : <Text style={styles.buttonTextSecondary}>Sign Message</Text>}</TouchableOpacity>
         {result && <Text style={[styles.result, { color: result.success ? '#737373' : '#ef4444' }]}>{result.message}</Text>}
         <Text style={styles.footer}>Gas sponsored · Powered by LazorKit + Jupiter</Text>
       </View>
-
       <Modal visible={!!showPicker} transparent animationType="slide" onRequestClose={() => setShowPicker(null)}>
         <TouchableOpacity style={styles.modal} activeOpacity={1} onPress={() => setShowPicker(null)}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Token</Text>
-            {TOKENS.filter(t => t.symbol !== (showPicker === 'from' ? toToken.symbol : fromToken.symbol)).map(t => (
-              <TouchableOpacity key={t.symbol} style={styles.modalItem} onPress={() => { showPicker === 'from' ? setFromToken(t) : setToToken(t); setShowPicker(null); }}>
-                <Text style={styles.modalItemText}>{t.symbol}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <View style={styles.modalContent}><Text style={styles.modalTitle}>Select Token</Text>{TOKENS.filter(t => t.symbol !== (showPicker === 'from' ? toToken.symbol : fromToken.symbol)).map(t => (<TouchableOpacity key={t.symbol} style={styles.modalItem} onPress={() => { showPicker === 'from' ? setFromToken(t) : setToToken(t); setShowPicker(null); }}><Text style={styles.modalItemText}>{t.symbol}</Text></TouchableOpacity>))}</View>
         </TouchableOpacity>
       </Modal>
     </View>

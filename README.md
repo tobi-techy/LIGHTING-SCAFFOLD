@@ -2,6 +2,8 @@
 
 ![Demo](demo.gif)
 
+> ⚡ **5 minutes from `npx` to first gasless transaction**
+
 CLI to scaffold Solana apps with LazorKit SDK. Generate React Native (Expo) or Next.js projects with passkey authentication, gasless transactions, and a ready-to-use swap interface.
 
 ## 🚀 Live Demo
@@ -148,6 +150,35 @@ const { swapTransaction } = await fetch('https://api.jup.ag/swap/v1/swap', {
   body: JSON.stringify({ quoteResponse: quote, userPublicKey: wallet })
 }).then(r => r.json());
 ```
+
+## Architecture
+
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   User      │────▶│  LazorKit Portal │────▶│  Smart Wallet   │
+│  (Passkey)  │     │  (Auth + Keys)   │     │  (PDA on-chain) │
+└─────────────┘     └──────────────────┘     └─────────────────┘
+                            │
+                            ▼
+                    ┌──────────────────┐
+                    │    Paymaster     │
+                    │  (Pays gas fees) │
+                    └──────────────────┘
+```
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Passkey not working | Ensure HTTPS (localhost OK for dev), check browser supports WebAuthn |
+| Transaction failing | Verify wallet has balance, check RPC endpoint, confirm paymaster config |
+| Mobile redirect issues | Ensure deep link scheme matches `app.json` config |
+
+## More Resources
+
+- **[SNIPPETS.md](./SNIPPETS.md)** - Copy-paste code examples
+- **[TUTORIALS.md](./TUTORIALS.md)** - Step-by-step integration guides
+- **[Twitter Thread](https://x.com/Tobi_Builder/status/2011043242251293087)** - Passkey wallet tutorial
 
 ## License
 

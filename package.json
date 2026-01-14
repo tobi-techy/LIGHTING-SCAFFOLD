@@ -1,6 +1,6 @@
 {
   "name": "create-lightning-scaffold",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "CLI to scaffold projects with LazorKit SDK integration",
   "type": "module",
   "bin": {
